@@ -1,4 +1,23 @@
-from app.models.conversation import Conversation, Message
-from app.models.user import User
+from app.models.quiz import (
+    Category,
+    DifficultyLevel,
+    Keyword,
+    Quiz,
+    QuizAttempt,
+    QuizOption,
+    quiz_keywords,
+)
+from app.models.user import User, UserCredential, UserRole
 
-__all__ = ["Conversation", "Message", "User"]
+__all__ = [
+    "Category",
+    "DifficultyLevel",
+    "Keyword",
+    "Quiz",
+    "QuizAttempt",
+    "QuizOption",
+    "User",
+    "UserCredential",
+    "UserRole",
+    "quiz_keywords",
+]

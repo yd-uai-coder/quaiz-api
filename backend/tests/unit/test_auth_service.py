@@ -1,30 +1,10 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import FakeRedis
 
 from app.core.security import decode_token
 from app.services.auth import AuthService, InvalidCredentialsError, InvalidTokenError
 from app.services.user import UserService
-
-
-class FakeRedis:
-    """Minimal in-memory stand-in for the subset of redis.asyncio.Redis used by AuthService."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, str] = {}
-
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
-        self._store[key] = value
-
-    async def exists(self, key: str) -> int:
-        return int(key in self._store)
-
-    async def delete(self, key: str) -> int:
-        return int(self._store.pop(key, None) is not None)
-
-
-@pytest.fixture
-def fake_redis() -> FakeRedis:
-    return FakeRedis()
 
 
 async def _create_user(session: AsyncSession):

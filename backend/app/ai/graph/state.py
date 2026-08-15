@@ -1,19 +1,20 @@
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
-from langchain_core.messages import BaseMessage
-from langgraph.graph.message import add_messages
+from app.schemas.quiz_generation import GeneratedQuestion, GeneratedQuiz
 
 
 class GraphState(TypedDict):
-    """State threaded through the chat workflow graph.
+    """State threaded through the quiz-generation workflow graph.
 
-    Flow: User -> Gemini -> Tavily -> evaluate results -> Gemini -> final answer.
+    Flow: generate_question(Gemini) -> search_answer(Tavily)
+          -> generate_answer(Gemini、検索結果が根拠) -> validate_quiz
+          -> (retry -> generate_answer | finalize)
     """
 
-    messages: Annotated[list[BaseMessage], add_messages]
-    question: str
-    needs_search: bool
-    search_query: str
+    category: str
+    keywords: list[str]
+    question_data: GeneratedQuestion | None
     search_results: list[dict]
-    evaluation: str
-    answer: str
+    quiz_data: GeneratedQuiz | None
+    validation_errors: list[str]
+    attempt: int

@@ -4,40 +4,43 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.ai.graph.nodes import (
-    decide_to_search,
-    draft_response,
-    evaluate_search_results,
-    finalize_without_search,
-    generate_final_answer,
-    web_search,
+    decide_after_validation,
+    finalize,
+    generate_answer,
+    generate_question,
+    search_answer,
+    validate_quiz,
 )
 from app.ai.graph.state import GraphState
 
 
-def build_chat_workflow() -> CompiledStateGraph:
-    """User -> Gemini -> Tavily -> evaluate results -> Gemini -> final answer."""
+def build_quiz_workflow() -> CompiledStateGraph:
+    """generate_question(Gemini) -> search_answer(Tavily) -> generate_answer(Gemini)
+    -> validate_quiz -> (retry -> generate_answer | finalize)。
+    """
     workflow = StateGraph(GraphState)
 
-    workflow.add_node("draft_response", draft_response)
-    workflow.add_node("web_search", web_search)
-    workflow.add_node("evaluate_search_results", evaluate_search_results)
-    workflow.add_node("generate_final_answer", generate_final_answer)
-    workflow.add_node("finalize_without_search", finalize_without_search)
+    workflow.add_node("generate_question", generate_question)
+    workflow.add_node("search_answer", search_answer)
+    workflow.add_node("generate_answer", generate_answer)
+    workflow.add_node("validate_quiz", validate_quiz)
+    workflow.add_node("finalize", finalize)
 
-    workflow.add_edge(START, "draft_response")
+    workflow.add_edge(START, "generate_question")
+    workflow.add_edge("generate_question", "search_answer")
+    workflow.add_edge("search_answer", "generate_answer")
+    workflow.add_edge("generate_answer", "validate_quiz")
     workflow.add_conditional_edges(
-        "draft_response",
-        decide_to_search,
-        {"search": "web_search", "finalize": "finalize_without_search"},
+        "validate_quiz",
+        decide_after_validation,
+        {"retry": "generate_answer", "finalize": "finalize"},
     )
-    workflow.add_edge("web_search", "evaluate_search_results")
-    workflow.add_edge("evaluate_search_results", "generate_final_answer")
-    workflow.add_edge("generate_final_answer", END)
-    workflow.add_edge("finalize_without_search", END)
+    workflow.add_edge("finalize", END)
 
     return workflow.compile()
 
 
 @lru_cache
-def get_chat_workflow() -> CompiledStateGraph:
-    return build_chat_workflow()
+def get_quiz_workflow() -> CompiledStateGraph:
+    """コンパイル済みグラフをプロセス内でキャッシュして返す(毎回コンパイルし直さないため)。"""
+    return build_quiz_workflow()

@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, EmailStr
+
+from app.models.user import UserRole
+from app.schemas.base import ORMReadModel
 
 
 class UserBase(BaseModel):
@@ -18,10 +21,13 @@ class UserUpdate(BaseModel):
     password: str | None = None
 
 
-class UserRead(UserBase):
-    model_config = ConfigDict(from_attributes=True)
-
+class UserRead(UserBase, ORMReadModel):
     id: uuid.UUID
     is_active: bool
-    is_superuser: bool
+    role: UserRole
     created_at: datetime
+
+
+class UserSummary(BaseModel):
+    challenged_count: int
+    corrected_count: int

@@ -5,6 +5,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.errors import UnauthorizedError
 from app.core.security import (
     TokenType,
     create_access_token,
@@ -18,11 +19,11 @@ from app.repositories.user import UserRepository
 _REFRESH_TOKEN_KEY_PREFIX = "refresh_token"
 
 
-class InvalidCredentialsError(Exception):
+class InvalidCredentialsError(UnauthorizedError):
     pass
 
 
-class InvalidTokenError(Exception):
+class InvalidTokenError(UnauthorizedError):
     pass
 
 
@@ -33,8 +34,9 @@ class AuthService:
         self._users = UserRepository(session)
 
     async def authenticate(self, *, email: str, password: str) -> User:
+        """email+passwordを検証する。パスワードはUserCredential側に保存されている。"""
         user = await self._users.get_by_email(email)
-        if user is None or not verify_password(password, user.hashed_password):
+        if user is None or not verify_password(password, user.credential.hashed_password):
             raise InvalidCredentialsError("Invalid email or password")
         if not user.is_active:
             raise InvalidCredentialsError("User is inactive")

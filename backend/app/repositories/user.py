@@ -1,26 +1,36 @@
-import uuid
+from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.user import User
+from app.models.user import User, UserCredential, UserRole
+from app.repositories.base import CRUDRepository
 
 
-class UserRepository:
+class UserRepository(CRUDRepository[User]):
     def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+        super().__init__(session, User)
 
-    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
-        return await self._session.get(User, user_id)
+    def _default_options(self) -> Sequence[Any]:
+        """常に認証情報(credential)も同時にロードする。"""
+        return (selectinload(User.credential),)
 
     async def get_by_email(self, email: str) -> User | None:
-        result = await self._session.execute(select(User).where(User.email == email))
-        return result.scalar_one_or_none()
+        """emailでUserを取得する。認証情報(credential)も同時にロードする。"""
+        return await self.find_one(email=email)
 
     async def create(
-        self, *, email: str, hashed_password: str, full_name: str | None = None
+        self,
+        *,
+        email: str,
+        hashed_password: str,
+        full_name: str | None = None,
+        role: UserRole = UserRole.USER,
     ) -> User:
-        user = User(email=email, hashed_password=hashed_password, full_name=full_name)
+        """UserとUserCredential(パスワード・role)を1組作成する。"""
+        user = User(email=email, full_name=full_name)
+        user.credential = UserCredential(hashed_password=hashed_password, role=role)
         self._session.add(user)
         await self._session.flush()
         return user

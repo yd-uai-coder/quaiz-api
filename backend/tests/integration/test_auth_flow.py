@@ -35,3 +35,32 @@ async def test_register_login_and_access_protected_route(client: AsyncClient) ->
         "/api/v1/auth/logout", json={"refresh_token": tokens["refresh_token"]}
     )
     assert logout_response.status_code == 204
+
+
+async def test_register_duplicate_email_returns_409(client: AsyncClient) -> None:
+    payload = {"email": "dupe@example.com", "password": "s3cret-pass", "full_name": "Dupe"}
+    await client.post("/api/v1/auth/register", json=payload)
+
+    response = await client.post("/api/v1/auth/register", json=payload)
+
+    assert response.status_code == 409
+
+
+async def test_login_with_wrong_password_returns_401(client: AsyncClient) -> None:
+    await client.post(
+        "/api/v1/auth/register",
+        json={"email": "wrongpass@example.com", "password": "s3cret-pass", "full_name": "Pat"},
+    )
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "wrongpass@example.com", "password": "not-the-right-password"},
+    )
+
+    assert response.status_code == 401
+
+
+async def test_refresh_with_garbage_token_returns_401(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/auth/refresh", json={"refresh_token": "not-a-real-token"})
+
+    assert response.status_code == 401

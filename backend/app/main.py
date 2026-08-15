@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.api.error_handlers import register_error_handlers
 from app.api.routes import api_router
 from app.core.config import settings
 from app.core.database import engine
@@ -29,6 +30,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_error_handlers(app)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 

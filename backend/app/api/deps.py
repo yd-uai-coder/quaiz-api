@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import TokenType, decode_token
 from app.infrastructure.redis import get_redis
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.user import UserService
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -52,3 +52,31 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+async def get_current_user_optional(
+    session: SessionDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
+) -> User | None:
+    """未ログインならNoneを返す(トークン不正時も401にせずNone扱い)。一覧・詳細など認証任意のエンドポイント用。"""
+    if credentials is None:
+        return None
+    try:
+        return await get_current_user(session, credentials)
+    except HTTPException:
+        return None
+
+
+OptionalCurrentUserDep = Annotated[User | None, Depends(get_current_user_optional)]
+
+
+async def get_current_admin(current_user: CurrentUserDep) -> User:
+    """ADMIN role以外は403にする(クイズ編集・削除など管理者専用エンドポイント用)。"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required"
+        )
+    return current_user
+
+
+CurrentAdminDep = Annotated[User, Depends(get_current_admin)]

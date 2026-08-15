@@ -10,7 +10,7 @@ async def test_create_user_hashes_password(db_session: AsyncSession) -> None:
     user = await service.create_user(email="alice@example.com", password="s3cret")
 
     assert user.email == "alice@example.com"
-    assert user.hashed_password != "s3cret"
+    assert user.credential.hashed_password != "s3cret"
 
 
 async def test_create_user_rejects_duplicate_email(db_session: AsyncSession) -> None:

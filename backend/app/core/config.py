@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    PROJECT_NAME: str = "FastAPI LangChain Template"
+    PROJECT_NAME: str = "Quitan API"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
@@ -36,8 +36,8 @@ class Settings(BaseSettings):
 
     # AI
     GOOGLE_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
     TAVILY_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
 
 
 @lru_cache
