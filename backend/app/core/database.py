@@ -12,7 +12,7 @@ from app.core.config import settings
 
 
 class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy ORM models."""
+    """すべてのSQLAlchemy ORMモデルの基底クラス。"""
 
 
 engine: AsyncEngine = create_async_engine(
@@ -30,6 +30,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:
-    """FastAPI dependency yielding a request-scoped async DB session."""
+    """FastAPIの依存関係により、リクエストスコープの非同期DBセッションが生成される。"""
     async with AsyncSessionLocal() as session:
         yield session

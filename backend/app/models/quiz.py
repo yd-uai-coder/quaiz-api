@@ -74,11 +74,12 @@ class Keyword(Base):
 
 
 class DifficultyLevel(Base):
-    """クイズの難易度マスタ(id 1〜5固定、シード投入済み)。"""
+    """クイズの難易度マスタ(level 1〜5固定、シード投入済み)。"""
 
     __tablename__ = "difficulty_levels"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    level: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(DIFFICULTY_LEVEL_NAME_MAX_LENGTH), nullable=False)
     description: Mapped[str] = mapped_column(
         String(DIFFICULTY_LEVEL_DESCRIPTION_MAX_LENGTH), nullable=False
@@ -102,8 +103,8 @@ class Quiz(Base):
     created_by_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False
     )
-    difficulty_level_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("difficulty_levels.id"), index=True, nullable=False
+    difficulty_level_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("difficulty_levels.id"), index=True, nullable=False
     )
     commentary: Mapped[str] = mapped_column(String(COMMENTARY_MAX_LENGTH), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -160,7 +161,7 @@ class QuizAttempt(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    corrected: Mapped[bool] = mapped_column(Boolean, nullable=False)
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     review: Mapped[str | None] = mapped_column(String(REVIEW_MAX_LENGTH), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -9,7 +9,7 @@ from app.schemas.base import ORMReadModel
 
 class UserBase(BaseModel):
     email: EmailStr
-    full_name: str | None = None
+    display_name: str | None = None
 
 
 class UserCreate(UserBase):
@@ -17,7 +17,7 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
-    full_name: str | None = None
+    display_name: str | None = None
     password: str | None = None
 
 

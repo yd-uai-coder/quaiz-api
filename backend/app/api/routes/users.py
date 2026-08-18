@@ -7,13 +7,13 @@ from app.services.quiz_attempt import QuizAttemptService
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("/me", response_model=UserRead)
+@router.get("/profile", response_model=UserRead)
 async def read_current_user(current_user: CurrentUserDep) -> UserRead:
     """ログイン中ユーザー自身のプロフィール(role含む)を返す。"""
     return UserRead.model_validate(current_user)
 
 
-@router.get("/me/summary", response_model=UserSummary)
+@router.get("/profile/summary", response_model=UserSummary)
 async def read_current_user_summary(
     current_user: CurrentUserDep, session: SessionDep
 ) -> UserSummary:

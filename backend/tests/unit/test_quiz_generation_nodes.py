@@ -75,6 +75,8 @@ def _initial_state(**overrides) -> dict:
     state = {
         "category": "地理",
         "keywords": [],
+        "difficulty_name": "一般常識・義務教育レベル",
+        "difficulty_description": "中学生以上の普通の大人なら、8〜9割は答えられる。",
         "question_data": None,
         "search_results": [],
         "quiz_data": None,

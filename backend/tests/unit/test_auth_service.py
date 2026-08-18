@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import FakeRedis
 
 from app.core.security import decode_token
-from app.services.auth import AuthService, InvalidCredentialsError, InvalidTokenError
+from app.services.auth import AuthService
+from app.services.errors import InvalidCredentialsError, InvalidTokenError
 from app.services.user import UserService
 
 

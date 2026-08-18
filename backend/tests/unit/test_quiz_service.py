@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,13 +7,15 @@ from app.models.quiz import Category, DifficultyLevel
 from app.schemas.quiz import QuizUpdateOption
 from app.schemas.quiz_generation import GeneratedOption, GeneratedQuiz
 from app.services import quiz as quiz_service_module
-from app.services.quiz import (
+from app.services.errors import (
     CategoryNotFoundError,
     DifficultyLevelNotFoundError,
     QuizGenerationFailedError,
     QuizNotFoundError,
-    QuizService,
+    QuizPermissionDeniedError,
+    QuizValidationError,
 )
+from app.services.quiz import QuizService
 from app.services.quiz_attempt import QuizAttemptService
 from app.services.user import UserService
 
@@ -46,9 +50,12 @@ async def _create_category(session: AsyncSession, name: str = "地理") -> Categ
 
 
 async def _create_difficulty_level(
-    session: AsyncSession, name: str = "超簡単", description: str = "誰でも分かる問題。"
+    session: AsyncSession,
+    name: str = "超簡単",
+    description: str = "誰でも分かる問題。",
+    level: int = 1,
 ) -> DifficultyLevel:
-    difficulty_level = DifficultyLevel(name=name, description=description)
+    difficulty_level = DifficultyLevel(name=name, description=description, level=level)
     session.add(difficulty_level)
     await session.commit()
     return difficulty_level
@@ -117,10 +124,35 @@ async def test_generate_quiz_raises_for_unknown_difficulty_level(
     with pytest.raises(DifficultyLevelNotFoundError):
         await QuizService(db_session).generate_quiz(
             category_id=category.id,
-            difficulty_level_id=999,
+            difficulty_level_id=uuid.uuid4(),
             keyword_texts=[],
             created_by_id=user.id,
         )
+
+
+async def test_generate_quiz_assigns_random_difficulty_when_omitted(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    category = await _create_category(db_session)
+    for level_id in range(1, 6):
+        await _create_difficulty_level(
+            db_session, name=f"レベル{level_id}", description="説明", level=level_id
+        )
+    user = await _create_user(db_session)
+    monkeypatch.setattr(
+        quiz_service_module,
+        "get_quiz_workflow",
+        lambda: FakeWorkflow({"quiz_data": _valid_generated_quiz(), "validation_errors": []}),
+    )
+
+    quiz = await QuizService(db_session).generate_quiz(
+        category_id=category.id,
+        difficulty_level_id=None,
+        keyword_texts=[],
+        created_by_id=user.id,
+    )
+
+    assert 1 <= quiz.difficulty_level.level <= 5
 
 
 async def test_generate_quiz_raises_when_validation_never_succeeds(
@@ -157,7 +189,7 @@ async def _generate_quiz(db_session: AsyncSession, monkeypatch, **overrides):
     quiz = await QuizService(db_session).generate_quiz(
         category_id=category.id,
         difficulty_level_id=difficulty_level.id,
-        keyword_texts=[],
+        keyword_texts=overrides.pop("keyword_texts", []),
         created_by_id=user.id,
     )
     return quiz, user
@@ -167,11 +199,10 @@ async def test_get_quiz_includes_my_attempt_when_present(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, user = await _generate_quiz(db_session, monkeypatch)
-    correct_option = next(o for o in quiz.options if o.is_correct)
     await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=correct_option.id,
+        corrected=True,
         favorite=True,
         review=None,
     )
@@ -179,7 +210,7 @@ async def test_get_quiz_includes_my_attempt_when_present(
     result = await QuizService(db_session).get_quiz(quiz.id, user_id=user.id)
 
     assert result.my_attempt is not None
-    assert result.my_attempt.is_correct is True
+    assert result.my_attempt.corrected is True
     assert result.my_attempt.is_favorite is True
 
 
@@ -191,7 +222,7 @@ async def test_get_quiz_raises_for_unknown_id(db_session: AsyncSession, monkeypa
 
 
 async def test_list_quizzes_filters_by_category(db_session: AsyncSession, monkeypatch) -> None:
-    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    quiz, _ = await _generate_quiz(db_session, monkeypatch, keyword_texts=["日本", "首都"])
     other_category = await _create_category(db_session, name="歴史")
 
     items, total = await QuizService(db_session).list_quizzes(
@@ -218,12 +249,62 @@ async def test_list_quizzes_filters_by_category(db_session: AsyncSession, monkey
     )
     assert total == 1
     assert items[0].id == quiz.id
+    assert {k.keyword for k in items[0].keywords} == {"日本", "首都"}
+
+
+async def test_list_quizzes_includes_my_attempt_when_present(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, user = await _generate_quiz(db_session, monkeypatch)
+    other_user = await _create_user(db_session, email="other@example.com")
+    await QuizAttemptService(db_session).submit_attempt(
+        quiz_id=quiz.id,
+        user_id=user.id,
+        corrected=True,
+        favorite=True,
+        review=None,
+    )
+
+    items, _ = await QuizService(db_session).list_quizzes(
+        category_id=None,
+        keyword=None,
+        user_id=user.id,
+        favorite_only=False,
+        corrected_only=False,
+        page=1,
+        limit=20,
+    )
+    assert items[0].my_attempt is not None
+    assert items[0].my_attempt.corrected is True
+    assert items[0].my_attempt.is_favorite is True
+
+    items, _ = await QuizService(db_session).list_quizzes(
+        category_id=None,
+        keyword=None,
+        user_id=other_user.id,
+        favorite_only=False,
+        corrected_only=False,
+        page=1,
+        limit=20,
+    )
+    assert items[0].my_attempt is None
+
+    items, _ = await QuizService(db_session).list_quizzes(
+        category_id=None,
+        keyword=None,
+        user_id=None,
+        favorite_only=False,
+        corrected_only=False,
+        page=1,
+        limit=20,
+    )
+    assert items[0].my_attempt is None
 
 
 async def test_update_quiz_replaces_fields_and_options(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    quiz, user = await _generate_quiz(db_session, monkeypatch)
 
     updated = await QuizService(db_session).update_quiz(
         quiz.id,
@@ -234,16 +315,103 @@ async def test_update_quiz_replaces_fields_and_options(
             QuizUpdateOption(content="A", is_correct=True),
             QuizUpdateOption(content="B", is_correct=False),
         ],
+        user_id=user.id,
+        is_admin=False,
     )
 
     assert updated.title == "改題"
     assert len(updated.options) == 2
 
 
-async def test_delete_quiz_removes_it(db_session: AsyncSession, monkeypatch) -> None:
-    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+async def test_update_quiz_raises_without_correct_option(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, user = await _generate_quiz(db_session, monkeypatch)
 
-    await QuizService(db_session).delete_quiz(quiz.id)
+    with pytest.raises(QuizValidationError):
+        await QuizService(db_session).update_quiz(
+            quiz.id,
+            title="改題",
+            question="改訂後の問題文",
+            commentary="改訂後の解説",
+            options=[
+                QuizUpdateOption(content="A", is_correct=False),
+                QuizUpdateOption(content="B", is_correct=False),
+            ],
+            user_id=user.id,
+            is_admin=False,
+        )
+
+
+async def test_update_quiz_raises_for_non_creator_non_admin(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    other_user = await _create_user(db_session, email="other-editor@example.com")
+
+    with pytest.raises(QuizPermissionDeniedError):
+        await QuizService(db_session).update_quiz(
+            quiz.id,
+            title="改題",
+            question="改訂後の問題文",
+            commentary="改訂後の解説",
+            options=[
+                QuizUpdateOption(content="A", is_correct=True),
+                QuizUpdateOption(content="B", is_correct=False),
+            ],
+            user_id=other_user.id,
+            is_admin=False,
+        )
+
+
+async def test_update_quiz_allows_admin_even_if_not_creator(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    admin_user = await _create_user(db_session, email="admin-editor@example.com")
+
+    updated = await QuizService(db_session).update_quiz(
+        quiz.id,
+        title="改題",
+        question="改訂後の問題文",
+        commentary="改訂後の解説",
+        options=[
+            QuizUpdateOption(content="A", is_correct=True),
+            QuizUpdateOption(content="B", is_correct=False),
+        ],
+        user_id=admin_user.id,
+        is_admin=True,
+    )
+
+    assert updated.title == "改題"
+
+
+async def test_delete_quiz_removes_it(db_session: AsyncSession, monkeypatch) -> None:
+    quiz, user = await _generate_quiz(db_session, monkeypatch)
+
+    await QuizService(db_session).delete_quiz(quiz.id, user_id=user.id, is_admin=False)
+
+    with pytest.raises(QuizNotFoundError):
+        await QuizService(db_session).get_quiz(quiz.id, user_id=None)
+
+
+async def test_delete_quiz_raises_for_non_creator_non_admin(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    other_user = await _create_user(db_session, email="other-deleter@example.com")
+
+    with pytest.raises(QuizPermissionDeniedError):
+        await QuizService(db_session).delete_quiz(quiz.id, user_id=other_user.id, is_admin=False)
+
+
+async def test_delete_quiz_allows_admin_even_if_not_creator(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    admin_user = await _create_user(db_session, email="admin-deleter@example.com")
+
+    await QuizService(db_session).delete_quiz(quiz.id, user_id=admin_user.id, is_admin=True)
 
     with pytest.raises(QuizNotFoundError):
         await QuizService(db_session).get_quiz(quiz.id, user_id=None)

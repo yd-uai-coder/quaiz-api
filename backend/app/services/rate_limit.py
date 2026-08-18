@@ -2,7 +2,7 @@ import uuid
 
 from redis.asyncio import Redis
 
-from app.core.errors import TooManyRequestsError
+from app.services.errors import QuizGenerationRateLimitExceededError
 
 RATE_LIMIT_MESSAGE = "規定のリクエスト回数に達しました。制限解除までしばらくお待ちください。"
 
@@ -11,10 +11,6 @@ _HOURLY_LIMIT = 5
 _HOURLY_TTL_SECONDS = 60 * 60
 _DAILY_LIMIT = 10
 _DAILY_TTL_SECONDS = 60 * 60 * 24
-
-
-class QuizGenerationRateLimitExceededError(TooManyRequestsError):
-    pass
 
 
 class QuizGenerationRateLimiter:

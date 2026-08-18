@@ -7,6 +7,7 @@ from app.api.routes.keywords import router as keywords_router
 from app.api.routes.quizzes import router as quizzes_router
 from app.api.routes.users import router as users_router
 
+# (app/main.py)にルーティング情報を1行で読み込ませる
 api_router = APIRouter()
 api_router.include_router(auth_router)
 api_router.include_router(users_router)

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.ai.graph import nodes
 from app.core.database import AsyncSessionLocal
 from app.models.quiz import Category, DifficultyLevel
-from app.models.user import User, UserCredential, UserRole
+from app.models.user import UserCredential, UserRole
 from app.schemas.quiz_generation import GeneratedAnswer, GeneratedOption, GeneratedQuestion
 
 pytestmark = pytest.mark.integration
@@ -71,7 +71,7 @@ def _mock_quiz_generation(monkeypatch, *, answers: Iterator[GeneratedAnswer] | N
 async def _register_and_login(client: AsyncClient, email: str) -> str:
     await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "s3cret-pass", "full_name": "Tester"},
+        json={"email": email, "password": "s3cret-pass", "display_name": "Tester"},
     )
     login_response = await client.post(
         "/api/v1/auth/login", json={"email": email, "password": "s3cret-pass"}
@@ -89,21 +89,20 @@ async def _create_category(name: str = "地理") -> str:
 
 
 async def _create_difficulty_level(
-    name: str = "超簡単", description: str = "誰でも分かる問題。"
-) -> int:
+    name: str = "超簡単", description: str = "誰でも分かる問題。", level: int = 1
+) -> str:
     async with AsyncSessionLocal() as session:
-        difficulty_level = DifficultyLevel(name=name, description=description)
+        difficulty_level = DifficultyLevel(name=name, description=description, level=level)
         session.add(difficulty_level)
         await session.commit()
         await session.refresh(difficulty_level)
-        return difficulty_level.id
+        return str(difficulty_level.id)
 
 
 async def _promote_to_admin(email: str) -> None:
     async with AsyncSessionLocal() as session:
-        user = (await session.execute(select(User).where(User.email == email))).scalar_one()
         credential = (
-            await session.execute(select(UserCredential).where(UserCredential.user_id == user.id))
+            await session.execute(select(UserCredential).where(UserCredential.email == email))
         ).scalar_one()
         credential.role = UserRole.ADMIN
         await session.commit()
@@ -132,7 +131,6 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     assert len(quiz["options"]) == 4
     assert quiz["difficulty_level"]["id"] == difficulty_level_id
     quiz_id = quiz["id"]
-    correct_option_id = next(o["id"] for o in quiz["options"] if o["is_correct"])
 
     list_response = await client.get("/api/v1/quizzes", params={"category_id": category_id})
     assert list_response.status_code == 200
@@ -144,11 +142,11 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
 
     attempt_response = await client.post(
         f"/api/v1/quizzes/{quiz_id}/attempts",
-        json={"selected_option_id": correct_option_id, "favorite": True},
+        json={"corrected": True, "favorite": True},
         headers=headers,
     )
     assert attempt_response.status_code == 200
-    assert attempt_response.json()["is_correct"] is True
+    assert attempt_response.json()["corrected"] is True
 
     summary_response = await client.get("/api/v1/users/me/summary", headers=headers)
     assert summary_response.json() == {"challenged_count": 1, "corrected_count": 1}
@@ -168,12 +166,13 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
         ],
     }
 
+    outsider_token = await _register_and_login(client, "outsider@example.com")
+    outsider_headers = {"Authorization": f"Bearer {outsider_token}"}
+
     forbidden_response = await client.patch(
-        f"/api/v1/quizzes/{quiz_id}", json=update_payload, headers=headers
+        f"/api/v1/quizzes/{quiz_id}", json=update_payload, headers=outsider_headers
     )
     assert forbidden_response.status_code == 403
-
-    await _promote_to_admin("quizmaker@example.com")
 
     update_response = await client.patch(
         f"/api/v1/quizzes/{quiz_id}", json=update_payload, headers=headers
@@ -181,7 +180,14 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     assert update_response.status_code == 200
     assert update_response.json()["title"] == "改題"
 
-    delete_response = await client.delete(f"/api/v1/quizzes/{quiz_id}", headers=headers)
+    delete_forbidden_response = await client.delete(
+        f"/api/v1/quizzes/{quiz_id}", headers=outsider_headers
+    )
+    assert delete_forbidden_response.status_code == 403
+
+    await _promote_to_admin("outsider@example.com")
+
+    delete_response = await client.delete(f"/api/v1/quizzes/{quiz_id}", headers=outsider_headers)
     assert delete_response.status_code == 204
 
 
@@ -209,35 +215,6 @@ async def test_generate_quiz_returns_404_for_unknown_category(
     )
 
     assert response.status_code == 404
-
-
-async def test_submit_attempt_with_unknown_option_returns_400(
-    client: AsyncClient, monkeypatch
-) -> None:
-    _mock_quiz_generation(monkeypatch)
-    category_id = await _create_category("歴史")
-    difficulty_level_id = await _create_difficulty_level()
-    token = await _register_and_login(client, "badoption@example.com")
-    headers = {"Authorization": f"Bearer {token}"}
-
-    generate_response = await client.post(
-        "/api/v1/quizzes/generate",
-        json={
-            "category_id": category_id,
-            "difficulty_level_id": difficulty_level_id,
-            "keywords": [],
-        },
-        headers=headers,
-    )
-    quiz_id = generate_response.json()["id"]
-
-    response = await client.post(
-        f"/api/v1/quizzes/{quiz_id}/attempts",
-        json={"selected_option_id": "00000000-0000-0000-0000-000000000000"},
-        headers=headers,
-    )
-
-    assert response.status_code == 400
 
 
 async def test_generate_quiz_returns_502_when_generation_keeps_failing(

@@ -2,14 +2,10 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError
 from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository
-
-
-class UserAlreadyExistsError(ConflictError):
-    pass
+from app.services.errors import UserAlreadyExistsError
 
 
 class UserService:
@@ -25,16 +21,18 @@ class UserService:
         """emailでユーザーを取得する。"""
         return await self._repo.get_by_email(email)
 
-    async def create_user(self, *, email: str, password: str, full_name: str | None = None) -> User:
+    async def create_user(
+        self, *, email: str, password: str, display_name: str | None = None
+    ) -> User:
         """新規登録。emailの重複チェック後、パスワードをハッシュ化しrole=USERで作成する。"""
         existing = await self._repo.get_by_email(email)
         if existing is not None:
-            raise UserAlreadyExistsError(f"User with email {email} already exists")
+            raise UserAlreadyExistsError(f"{email} は既に使用されています。")
 
         user = await self._repo.create(
             email=email,
             hashed_password=hash_password(password),
-            full_name=full_name,
+            display_name=display_name,
             role=UserRole.USER,
         )
         await self._session.commit()

@@ -3,7 +3,6 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import (
-    CurrentAdminDep,
     CurrentUserDep,
     OptionalCurrentUserDep,
     RedisDep,
@@ -28,7 +27,7 @@ router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 @router.get("", response_model=QuizListResponse)
 async def list_quizzes(
     session: SessionDep,
-    current_user: OptionalCurrentUserDep,
+    current_user: OptionalCurrentUserDep,  # 未ログインならNoneを返す
     category_id: uuid.UUID | None = None,
     keyword: str | None = None,
     favorite: bool = False,
@@ -86,22 +85,31 @@ async def generate_quiz(
 
 @router.patch("/{quiz_id}", response_model=QuizRead)
 async def update_quiz(
-    quiz_id: uuid.UUID, payload: QuizUpdateRequest, session: SessionDep, _admin: CurrentAdminDep
+    quiz_id: uuid.UUID,
+    payload: QuizUpdateRequest,
+    session: SessionDep,
+    current_user: CurrentUserDep,
 ) -> QuizRead:
-    """管理者専用。クイズ本文と選択肢を編集する。"""
+    """作成者本人または管理者がクイズ本文と選択肢を編集する。"""
     return await QuizService(session).update_quiz(
         quiz_id,
         title=payload.title,
         question=payload.question,
         commentary=payload.commentary,
         options=payload.options,
+        user_id=current_user.id,
+        is_admin=current_user.role == UserRole.ADMIN,
     )
 
 
 @router.delete("/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_quiz(quiz_id: uuid.UUID, session: SessionDep, _admin: CurrentAdminDep) -> None:
-    """管理者専用。クイズを削除する。"""
-    await QuizService(session).delete_quiz(quiz_id)
+async def delete_quiz(
+    quiz_id: uuid.UUID, session: SessionDep, current_user: CurrentUserDep
+) -> None:
+    """作成者本人または管理者がクイズを削除する。"""
+    await QuizService(session).delete_quiz(
+        quiz_id, user_id=current_user.id, is_admin=current_user.role == UserRole.ADMIN
+    )
 
 
 @router.post("/{quiz_id}/attempts", response_model=QuizAttemptResult)
@@ -111,11 +119,11 @@ async def submit_attempt(
     session: SessionDep,
     current_user: CurrentUserDep,
 ) -> QuizAttemptResult:
-    """クイズに回答を送信し、採点結果を返す(お気に入り/レビューも同時更新可能)。"""
+    """回答結果、お気に入り、レビューの登録"""
     return await QuizAttemptService(session).submit_attempt(
         quiz_id=quiz_id,
         user_id=current_user.id,
-        selected_option_id=payload.selected_option_id,
+        corrected=payload.corrected,
         favorite=payload.favorite,
         review=payload.review,
     )

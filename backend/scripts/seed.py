@@ -11,6 +11,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.user import UserRole
 from app.repositories.category import CategoryRepository
+from app.repositories.difficulty_level import DifficultyLevelRepository
 from app.repositories.keyword import KeywordRepository
 from app.repositories.quiz import QuizRepository
 from app.repositories.quiz_attempt import QuizAttemptRepository
@@ -56,7 +57,7 @@ QUIZZES = [
         "question": "モンスターハンターワイルドの発売日は？",
         "category": "アニメ・ゲーム",
         "creator": "nanashi",
-        "difficulty_level_id": 2,
+        "difficulty_level": 2,
         "commentary": "ゲーム好きならではの問題。",
         "options": [
             ("2025年2月28日", True),
@@ -65,7 +66,7 @@ QUIZZES = [
             ("2025年2月23日", False),
         ],
         "keywords": ["ゲーム", "モンハン", "ワイルズ"],
-        "attempt": {"is_correct": True, "is_favorite": True, "review": None},
+        "attempt": {"corrected": True, "is_favorite": True, "review": None},
     },
     {
         "title": "有名画家",
@@ -74,7 +75,7 @@ QUIZZES = [
         ),
         "category": "美術",
         "creator": "kohei",
-        "difficulty_level_id": 1,
+        "difficulty_level": 1,
         "commentary": (
             "レオナルドはルネサンス期を代表する芸術家であり、「飽くなき探究心」と「尽きることのない独創性」を"
             "兼ね備えた人物といわれている。史上最高の画家の一人と評されるとともに、人類史上で最も多才との呼び声も"
@@ -89,7 +90,7 @@ QUIZZES = [
             ("ロダン", False),
         ],
         "keywords": ["社会", "歴史", "音楽"],
-        "attempt": {"is_correct": True, "is_favorite": False, "review": "面白かった"},
+        "attempt": {"corrected": True, "is_favorite": False, "review": "面白かった"},
     },
     {
         "title": "日本の秘境！世界遺産の自然クイズ",
@@ -100,7 +101,7 @@ QUIZZES = [
         ),
         "category": "観光",
         "creator": "hiroyuki",
-        "difficulty_level_id": 3,
+        "difficulty_level": 3,
         "commentary": (
             "白神山地は、青森県と秋田県にまたがる世界遺産で、広大なブナ原生林がその最大の特徴です。"
             "面積の広さ、ブナの樹齢、そして手つかずの自然の広がりは、世界でも類を見ない規模を誇ります。"
@@ -112,7 +113,7 @@ QUIZZES = [
             ("富士山", False),
         ],
         "keywords": ["日本", "世界遺産", "自然"],
-        "attempt": {"is_correct": True, "is_favorite": True, "review": None},
+        "attempt": {"corrected": True, "is_favorite": True, "review": None},
     },
     {
         "title": "ダルビッシュ有投手のメジャーリーグでの軌跡",
@@ -133,7 +134,7 @@ QUIZZES = [
         ),
         "category": "スポーツ",
         "creator": "Douko",
-        "difficulty_level_id": 4,
+        "difficulty_level": 4,
         "commentary": (
             "ダルビッシュ有投手は、メジャーリーグでノーヒットノーランを達成していません。  問題文は"
             "、彼のメジャーリーグでの活躍ぶりを詳細に記述することで、ノーヒットノーランを達成したか"
@@ -150,7 +151,7 @@ QUIZZES = [
         ],
         "keywords": ["野球", "メジャーリーグ"],
         "attempt": {
-            "is_correct": True,
+            "corrected": True,
             "is_favorite": False,
             "review": "大谷選手の投手成績に期待します。",
         },
@@ -161,6 +162,7 @@ QUIZZES = [
 async def seed() -> None:
     async with AsyncSessionLocal() as session:
         category_repo = CategoryRepository(session)
+        difficulty_level_repo = DifficultyLevelRepository(session)
         keyword_repo = KeywordRepository(session)
         user_repo = UserRepository(session)
         quiz_repo = QuizRepository(session)
@@ -171,6 +173,7 @@ async def seed() -> None:
             for name in CATEGORY_NAMES
         }
         keywords = {text: await keyword_repo.get_or_create(text) for text in KEYWORD_TEXTS}
+        difficulty_levels = {level.level: level for level in await difficulty_level_repo.list_all()}
 
         users = {}
         for u in USERS:
@@ -182,7 +185,7 @@ async def seed() -> None:
             users[u["username"]] = await user_repo.create(
                 email=email,
                 hashed_password=hash_password(u["password"]),
-                full_name=u["username"],
+                display_name=u["username"],
                 role=UserRole.ADMIN,
             )
 
@@ -193,14 +196,14 @@ async def seed() -> None:
                 commentary=q["commentary"],
                 category_id=categories[q["category"]].id,
                 created_by_id=users[q["creator"]].id,
-                difficulty_level_id=q["difficulty_level_id"],
+                difficulty_level_id=difficulty_levels[q["difficulty_level"]].id,
                 options=q["options"],
                 keywords=[keywords[text] for text in q["keywords"]],
             )
             await attempt_repo.upsert(
                 quiz_id=quiz.id,
                 user_id=users[q["creator"]].id,
-                is_correct=q["attempt"]["is_correct"],
+                corrected=q["attempt"]["corrected"],
                 favorite=q["attempt"]["is_favorite"],
                 review=q["attempt"]["review"],
             )

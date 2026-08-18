@@ -14,6 +14,7 @@ from app.infrastructure.redis import get_redis_client
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+    # サーバー起動後にSQLAlchemyのEngineを終了する
     await engine.dispose()
 
 
@@ -33,6 +34,7 @@ app.add_middleware(
 
 register_error_handlers(app)
 
+# app/api/routes/__init__.pyのルーティング設定を一括読み込み、prefixの一括管理
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
 

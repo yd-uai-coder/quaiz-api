@@ -1,5 +1,7 @@
 import uuid
+from collections.abc import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.quiz import QuizAttempt
@@ -16,12 +18,25 @@ class QuizAttemptRepository(CRUDRepository[QuizAttempt]):
         """特定ユーザーの特定クイズに対する回答状態を1件取得する。"""
         return await self.find_one(quiz_id=quiz_id, user_id=user_id)
 
+    async def list_for_user_and_quizzes(
+        self, *, user_id: uuid.UUID, quiz_ids: Sequence[uuid.UUID]
+    ) -> list[QuizAttempt]:
+        """指定ユーザーの、指定クイズ群に対する回答状態をまとめて取得する(一覧のN+1回避用)。"""
+        if not quiz_ids:
+            return []
+        result = await self._session.execute(
+            select(QuizAttempt).where(
+                QuizAttempt.user_id == user_id, QuizAttempt.quiz_id.in_(quiz_ids)
+            )
+        )
+        return list(result.scalars().all())
+
     async def upsert(
         self,
         *,
         quiz_id: uuid.UUID,
         user_id: uuid.UUID,
-        is_correct: bool,
+        corrected: bool,
         favorite: bool | None,
         review: str | None,
     ) -> QuizAttempt:
@@ -31,13 +46,13 @@ class QuizAttemptRepository(CRUDRepository[QuizAttempt]):
             attempt = QuizAttempt(
                 quiz_id=quiz_id,
                 user_id=user_id,
-                is_correct=is_correct,
+                corrected=corrected,
                 is_favorite=favorite or False,
                 review=review,
             )
             self._session.add(attempt)
         else:
-            attempt.is_correct = is_correct
+            attempt.corrected = corrected
             if favorite is not None:
                 attempt.is_favorite = favorite
             if review is not None:
@@ -51,4 +66,4 @@ class QuizAttemptRepository(CRUDRepository[QuizAttempt]):
 
     async def count_corrected(self, user_id: uuid.UUID) -> int:
         """ユーザーが正解したクイズの件数を数える。"""
-        return await self.count(user_id=user_id, is_correct=True)
+        return await self.count(user_id=user_id, corrected=True)

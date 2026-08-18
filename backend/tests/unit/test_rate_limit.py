@@ -3,7 +3,8 @@ import uuid
 import pytest
 from tests.conftest import FakeRedis
 
-from app.services.rate_limit import QuizGenerationRateLimiter, QuizGenerationRateLimitExceededError
+from app.services.errors import QuizGenerationRateLimitExceededError
+from app.services.rate_limit import QuizGenerationRateLimiter
 
 
 async def test_check_and_increment_allows_requests_within_limits(fake_redis: FakeRedis) -> None:

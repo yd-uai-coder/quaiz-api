@@ -5,7 +5,6 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.errors import UnauthorizedError
 from app.core.security import (
     TokenType,
     create_access_token,
@@ -15,16 +14,9 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.repositories.user import UserRepository
+from app.services.errors import InvalidCredentialsError, InvalidTokenError
 
 _REFRESH_TOKEN_KEY_PREFIX = "refresh_token"
-
-
-class InvalidCredentialsError(UnauthorizedError):
-    pass
-
-
-class InvalidTokenError(UnauthorizedError):
-    pass
 
 
 class AuthService:

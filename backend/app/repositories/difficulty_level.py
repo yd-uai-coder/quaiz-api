@@ -9,5 +9,5 @@ class DifficultyLevelRepository(CRUDRepository[DifficultyLevel]):
         super().__init__(session, DifficultyLevel)
 
     async def list_all(self) -> list[DifficultyLevel]:
-        """難易度をid順(1〜5)で全件取得する。"""
-        return await super().list_all(order_by=DifficultyLevel.id)
+        """難易度をlevel順(1〜5)で全件取得する。"""
+        return await super().list_all(order_by=DifficultyLevel.level)

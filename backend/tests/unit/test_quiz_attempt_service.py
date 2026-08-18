@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.quiz import Category, DifficultyLevel
 from app.schemas.quiz_generation import GeneratedOption, GeneratedQuiz
 from app.services import quiz as quiz_service_module
-from app.services.quiz import QuizNotFoundError, QuizService
-from app.services.quiz_attempt import OptionNotFoundError, QuizAttemptService
+from app.services.errors import QuizNotFoundError
+from app.services.quiz import QuizService
+from app.services.quiz_attempt import QuizAttemptService
 from app.services.user import UserService
 
 
@@ -35,7 +36,7 @@ def _valid_generated_quiz() -> GeneratedQuiz:
 
 async def _create_quiz(db_session: AsyncSession, monkeypatch, email: str):
     category = Category(name="地理")
-    difficulty_level = DifficultyLevel(name="超簡単", description="誰でも分かる問題。")
+    difficulty_level = DifficultyLevel(name="超簡単", description="誰でも分かる問題。", level=1)
     db_session.add_all([category, difficulty_level])
     await db_session.commit()
     user = await UserService(db_session).create_user(email=email, password="s3cret")
@@ -55,56 +56,51 @@ async def _create_quiz(db_session: AsyncSession, monkeypatch, email: str):
 
 async def test_submit_attempt_records_correct_answer(db_session: AsyncSession, monkeypatch) -> None:
     quiz, user = await _create_quiz(db_session, monkeypatch, "answerer@example.com")
-    correct_option = next(o for o in quiz.options if o.is_correct)
 
     result = await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=correct_option.id,
+        corrected=True,
         favorite=None,
         review=None,
     )
 
-    assert result.is_correct is True
-    assert result.correct_option_id == correct_option.id
+    assert result.corrected is True
 
 
 async def test_submit_attempt_records_incorrect_answer(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, user = await _create_quiz(db_session, monkeypatch, "wrong-answerer@example.com")
-    wrong_option = next(o for o in quiz.options if not o.is_correct)
 
     result = await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=wrong_option.id,
+        corrected=False,
         favorite=None,
         review=None,
     )
 
-    assert result.is_correct is False
+    assert result.corrected is False
 
 
 async def test_submit_attempt_upserts_same_row_on_retry(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, user = await _create_quiz(db_session, monkeypatch, "retry@example.com")
-    wrong_option = next(o for o in quiz.options if not o.is_correct)
-    correct_option = next(o for o in quiz.options if o.is_correct)
     service = QuizAttemptService(db_session)
 
     await service.submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=wrong_option.id,
+        corrected=False,
         favorite=None,
         review=None,
     )
     await service.submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=correct_option.id,
+        corrected=True,
         favorite=True,
         review="覚えた",
     )
@@ -121,22 +117,7 @@ async def test_submit_attempt_raises_for_unknown_quiz(db_session: AsyncSession) 
         await QuizAttemptService(db_session).submit_attempt(
             quiz_id=uuid.uuid4(),
             user_id=user.id,
-            selected_option_id=uuid.uuid4(),
-            favorite=None,
-            review=None,
-        )
-
-
-async def test_submit_attempt_raises_for_unknown_option(
-    db_session: AsyncSession, monkeypatch
-) -> None:
-    quiz, user = await _create_quiz(db_session, monkeypatch, "badoption@example.com")
-
-    with pytest.raises(OptionNotFoundError):
-        await QuizAttemptService(db_session).submit_attempt(
-            quiz_id=quiz.id,
-            user_id=user.id,
-            selected_option_id=uuid.uuid4(),
+            corrected=True,
             favorite=None,
             review=None,
         )
@@ -146,13 +127,12 @@ async def test_get_summary_counts_challenged_and_corrected(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, user = await _create_quiz(db_session, monkeypatch, "summary@example.com")
-    correct_option = next(o for o in quiz.options if o.is_correct)
     service = QuizAttemptService(db_session)
 
     await service.submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
-        selected_option_id=correct_option.id,
+        corrected=True,
         favorite=None,
         review=None,
     )

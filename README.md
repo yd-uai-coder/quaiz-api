@@ -1,6 +1,6 @@
-# Quitan API
+# QuAiz API
 
-生成AIでクイズを作って遊べるアプリ「Quitan」のバックエンドです。FastAPI・LangChain(LangGraph)・PostgreSQL・Redisで構成され、JWT認証基盤とLangGraphによる`カテゴリ/キーワード指定 → Gemini(構造化出力) → バリデーション → (再試行 | 確定)`のクイズ生成ワークフローを備えています。フロントエンドはNext.jsで別プロジェクトとして開発し、本APIはJSONのみを返します(サーバーサイドレンダリングは行いません)。
+生成AIでクイズを作って遊べるアプリ「QuAiz」のバックエンドです。FastAPI・LangChain(LangGraph)・PostgreSQL・Redisで構成され、JWT認証基盤とLangGraphによる`カテゴリ/キーワード指定 → Gemini(構造化出力) → バリデーション → (再試行 | 確定)`のクイズ生成ワークフローを備えています。フロントエンドはNext.jsで別プロジェクトとして開発し、本APIはJSONのみを返します(サーバーサイドレンダリングは行いません)。
 
 ## 技術スタック
 

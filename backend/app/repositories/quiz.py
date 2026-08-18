@@ -31,7 +31,7 @@ class QuizRepository(CRUDRepository[Quiz]):
         commentary: str,
         category_id: uuid.UUID,
         created_by_id: uuid.UUID,
-        difficulty_level_id: int,
+        difficulty_level_id: uuid.UUID,
         options: list[tuple[str, bool]],
         keywords: list[Keyword],
     ) -> Quiz:
@@ -87,8 +87,8 @@ class QuizRepository(CRUDRepository[Quiz]):
                 query = query.where(QuizAttempt.is_favorite.is_(True))
                 count_query = count_query.where(QuizAttempt.is_favorite.is_(True))
             if corrected_only:
-                query = query.where(QuizAttempt.is_correct.is_(True))
-                count_query = count_query.where(QuizAttempt.is_correct.is_(True))
+                query = query.where(QuizAttempt.corrected.is_(True))
+                count_query = count_query.where(QuizAttempt.corrected.is_(True))
 
         query = query.order_by(Quiz.created_at.desc()).offset((page - 1) * limit).limit(limit)
 

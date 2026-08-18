@@ -34,16 +34,15 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
+    """マイグレーションを『オフライン』モードで実行。
+    コンテキストはURLのみで設定され、
+    エンジンは指定されないが、
+    ここでもエンジンを指定することは可能。
+    エンジンの作成を省略することで、
+    DBAPIが利用可能である必要がなくなる。
 
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
+    ここで context.execute() を呼び出すと、指定された文字列が
+    スクリプトの出力に書き出される。
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -65,10 +64,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
+    """エンジンを作成し、コンテキストへの接続を関連付ける必要がある"""
 
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
@@ -83,7 +79,7 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+    """マイグレーションをオンラインで実行"""
 
     asyncio.run(run_async_migrations())
 

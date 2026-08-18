@@ -37,3 +37,6 @@ uv-cache/
 docker-compose.override.yml
 
 CLAUDE.md
+
+# Ad-hoc code commentary files (not part of the codebase)
+commentary/

@@ -1,4 +1,5 @@
 import asyncio
+import random
 import uuid
 
 from google.genai.errors import APIError as GoogleAPIError
@@ -7,34 +8,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tavily import UsageLimitExceededError as TavilyUsageLimitExceededError
 
 from app.ai.graph.workflow import get_quiz_workflow
-from app.core.errors import BadGatewayError, NotFoundError
-from app.models.quiz import Quiz, QuizAttempt
+from app.models.quiz import Quiz
 from app.repositories.category import CategoryRepository
 from app.repositories.difficulty_level import DifficultyLevelRepository
 from app.repositories.keyword import KeywordRepository
 from app.repositories.quiz import QuizRepository
-from app.repositories.quiz_attempt import QuizAttemptRepository
 from app.schemas.quiz import QuizAttemptRead, QuizListItem, QuizRead, QuizUpdateOption
+from app.services.errors import (
+    CategoryNotFoundError,
+    DifficultyLevelNotFoundError,
+    QuizGenerationFailedError,
+    QuizNotFoundError,
+    QuizPermissionDeniedError,
+    QuizValidationError,
+)
+from app.services.quiz_attempt import QuizAttemptService
 from app.services.rate_limit import RATE_LIMIT_MESSAGE, QuizGenerationRateLimitExceededError
 
 MAX_WORKFLOW_RETRIES = 3
 _WORKFLOW_RETRY_DELAY_SECONDS = 1.0
-
-
-class CategoryNotFoundError(NotFoundError):
-    pass
-
-
-class DifficultyLevelNotFoundError(NotFoundError):
-    pass
-
-
-class QuizNotFoundError(NotFoundError):
-    pass
-
-
-class QuizGenerationFailedError(BadGatewayError):
-    pass
 
 
 def _is_quota_exceeded(exc: Exception) -> bool:
@@ -73,24 +65,32 @@ class QuizService:
         self._categories = CategoryRepository(session)
         self._difficulty_levels = DifficultyLevelRepository(session)
         self._keywords = KeywordRepository(session)
-        self._attempts = QuizAttemptRepository(session)
+        self._attempts = QuizAttemptService(session)
 
     async def generate_quiz(
         self,
         *,
         category_id: uuid.UUID,
-        difficulty_level_id: int,
+        difficulty_level_id: uuid.UUID | None,
         keyword_texts: list[str],
         created_by_id: uuid.UUID,
     ) -> QuizRead:
-        """LangGraphでクイズを生成し、成功したらDBへ保存する(失敗時は例外を送出)。"""
+        """LangGraphでクイズを生成し、成功したらDBへ保存する(失敗時は例外を送出)。
+        difficulty_level_idが未指定の場合はランダムな難易度を採番する。
+        """
         category = await self._categories.get_by_id(category_id)
         if category is None:
             raise CategoryNotFoundError(f"Category {category_id} not found")
 
-        difficulty_level = await self._difficulty_levels.get_by_id(difficulty_level_id)
-        if difficulty_level is None:
-            raise DifficultyLevelNotFoundError(f"DifficultyLevel {difficulty_level_id} not found")
+        if difficulty_level_id is None:
+            levels = await self._difficulty_levels.list_all()
+            difficulty_level = random.choice(levels)
+        else:
+            difficulty_level = await self._difficulty_levels.get_by_id(difficulty_level_id)
+            if difficulty_level is None:
+                raise DifficultyLevelNotFoundError(
+                    f"DifficultyLevel {difficulty_level_id} not found"
+                )
 
         workflow = get_quiz_workflow()
         result = await _invoke_workflow_with_retry(
@@ -98,6 +98,8 @@ class QuizService:
             {
                 "category": category.name,
                 "keywords": keyword_texts,
+                "difficulty_name": difficulty_level.name,
+                "difficulty_description": difficulty_level.description,
                 "question_data": None,
                 "search_results": [],
                 "quiz_data": None,
@@ -137,7 +139,7 @@ class QuizService:
 
         attempt = None
         if user_id is not None:
-            attempt = await self._attempts.get_for_user_and_quiz(quiz_id=quiz_id, user_id=user_id)
+            attempt = await self._attempts.get_attempt(quiz_id=quiz_id, user_id=user_id)
         return self._to_quiz_read(quiz, attempt=attempt)
 
     async def list_quizzes(
@@ -161,7 +163,22 @@ class QuizService:
             page=page,
             limit=limit,
         )
-        return [QuizListItem.model_validate(quiz) for quiz in quizzes], total
+
+        # ユーザー認証時はお気に入りと過去の回答結果の情報を取得
+        attempts_by_quiz_id: dict[uuid.UUID, QuizAttemptRead] = {}
+        if user_id is not None and quizzes:
+            attempts_by_quiz_id = await self._attempts.get_attempts_by_quiz_id(
+                user_id=user_id, quiz_ids=[quiz.id for quiz in quizzes]
+            )
+
+        # クイズ一覧の作成(未認証の場合my_attemptにはNoneが入る)
+        items = [
+            QuizListItem.model_validate(quiz).model_copy(
+                update={"my_attempt": attempts_by_quiz_id.get(quiz.id)}
+            )
+            for quiz in quizzes
+        ]
+        return items, total
 
     async def update_quiz(
         self,
@@ -171,11 +188,17 @@ class QuizService:
         question: str,
         commentary: str,
         options: list[QuizUpdateOption],
+        user_id: uuid.UUID,
+        is_admin: bool,
     ) -> QuizRead:
-        """管理者によるクイズ編集。本文と選択肢一式を丸ごと置き換える。"""
+        """作成者本人または管理者によるクイズ編集。本文と選択肢一式を丸ごと置き換える。"""
         quiz = await self._quizzes.get_by_id(quiz_id)
         if quiz is None:
             raise QuizNotFoundError(f"Quiz {quiz_id} not found")
+        if not is_admin and quiz.created_by_id != user_id:
+            raise QuizPermissionDeniedError("この操作を行う権限がありません。")
+        if not any(option.is_correct for option in options):
+            raise QuizValidationError("エラー：正解の選択肢が含まれていません。")
 
         await self._quizzes.update(quiz, title=title, question=question, commentary=commentary)
         await self._quizzes.replace_options(quiz, [(o.content, o.is_correct) for o in options])
@@ -184,16 +207,18 @@ class QuizService:
         quiz = await self._quizzes.get_by_id(quiz_id)
         return self._to_quiz_read(quiz, attempt=None)
 
-    async def delete_quiz(self, quiz_id: uuid.UUID) -> None:
-        """管理者によるクイズ削除。"""
+    async def delete_quiz(self, quiz_id: uuid.UUID, *, user_id: uuid.UUID, is_admin: bool) -> None:
+        """作成者本人または管理者によるクイズ削除。"""
         quiz = await self._quizzes.get_by_id(quiz_id)
         if quiz is None:
             raise QuizNotFoundError(f"Quiz {quiz_id} not found")
+        if not is_admin and quiz.created_by_id != user_id:
+            raise QuizPermissionDeniedError("この操作を行う権限がありません。")
         await self._quizzes.delete(quiz)
         await self._session.commit()
 
     @staticmethod
-    def _to_quiz_read(quiz: Quiz, *, attempt: QuizAttempt | None) -> QuizRead:
+    def _to_quiz_read(quiz: Quiz, *, attempt: QuizAttemptRead | None) -> QuizRead:
         """ORMのQuizエンティティ(+任意の回答状態)からQuizReadスキーマを組み立てる。"""
         return QuizRead(
             id=quiz.id,
@@ -206,5 +231,5 @@ class QuizService:
             options=list(quiz.options),
             created_at=quiz.created_at,
             updated_at=quiz.updated_at,
-            my_attempt=QuizAttemptRead.model_validate(attempt) if attempt else None,
+            my_attempt=attempt,
         )

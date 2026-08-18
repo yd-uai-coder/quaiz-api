@@ -7,7 +7,7 @@ pytestmark = pytest.mark.integration
 async def test_register_login_and_access_protected_route(client: AsyncClient) -> None:
     register_response = await client.post(
         "/api/v1/auth/register",
-        json={"email": "erin@example.com", "password": "s3cret-pass", "full_name": "Erin"},
+        json={"email": "erin@example.com", "password": "s3cret-pass", "display_name": "Erin"},
     )
     assert register_response.status_code == 201
 
@@ -38,7 +38,7 @@ async def test_register_login_and_access_protected_route(client: AsyncClient) ->
 
 
 async def test_register_duplicate_email_returns_409(client: AsyncClient) -> None:
-    payload = {"email": "dupe@example.com", "password": "s3cret-pass", "full_name": "Dupe"}
+    payload = {"email": "dupe@example.com", "password": "s3cret-pass", "display_name": "Dupe"}
     await client.post("/api/v1/auth/register", json=payload)
 
     response = await client.post("/api/v1/auth/register", json=payload)
@@ -49,7 +49,7 @@ async def test_register_duplicate_email_returns_409(client: AsyncClient) -> None
 async def test_login_with_wrong_password_returns_401(client: AsyncClient) -> None:
     await client.post(
         "/api/v1/auth/register",
-        json={"email": "wrongpass@example.com", "password": "s3cret-pass", "full_name": "Pat"},
+        json={"email": "wrongpass@example.com", "password": "s3cret-pass", "display_name": "Pat"},
     )
 
     response = await client.post(

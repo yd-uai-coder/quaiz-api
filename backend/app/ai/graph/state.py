@@ -13,6 +13,8 @@ class GraphState(TypedDict):
 
     category: str
     keywords: list[str]
+    difficulty_name: str
+    difficulty_description: str
     question_data: GeneratedQuestion | None
     search_results: list[dict]
     quiz_data: GeneratedQuiz | None

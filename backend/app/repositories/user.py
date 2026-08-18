@@ -17,20 +17,23 @@ class UserRepository(CRUDRepository[User]):
         return (selectinload(User.credential),)
 
     async def get_by_email(self, email: str) -> User | None:
-        """emailでUserを取得する。認証情報(credential)も同時にロードする。"""
-        return await self.find_one(email=email)
+        """email(UserCredential側)でUserを取得する。認証情報(credential)も同時にロードする。"""
+        result = await self._session.execute(
+            self._select().join(User.credential).where(UserCredential.email == email)
+        )
+        return result.scalar_one_or_none()
 
     async def create(
         self,
         *,
         email: str,
         hashed_password: str,
-        full_name: str | None = None,
+        display_name: str | None = None,
         role: UserRole = UserRole.USER,
     ) -> User:
-        """UserとUserCredential(パスワード・role)を1組作成する。"""
-        user = User(email=email, full_name=full_name)
-        user.credential = UserCredential(hashed_password=hashed_password, role=role)
+        """UserとUserCredential(email・パスワード・role)を1組作成する。"""
+        user = User(display_name=display_name)
+        user.credential = UserCredential(email=email, hashed_password=hashed_password, role=role)
         self._session.add(user)
         await self._session.flush()
         return user

@@ -23,7 +23,7 @@ class QuizOptionRead(ORMReadModel):
 
 
 class QuizAttemptRead(ORMReadModel):
-    is_correct: bool
+    corrected: bool
     is_favorite: bool
     review: str | None
     updated_at: datetime
@@ -34,7 +34,9 @@ class QuizListItem(ORMReadModel):
     title: str
     category: CategoryRead
     difficulty_level: DifficultyLevelRead
+    keywords: list[KeywordRead]
     created_at: datetime
+    my_attempt: QuizAttemptRead | None = None
 
 
 class QuizRead(BaseModel):
@@ -60,7 +62,7 @@ class QuizListResponse(BaseModel):
 
 class QuizGenerateRequest(BaseModel):
     category_id: uuid.UUID
-    difficulty_level_id: int
+    difficulty_level_id: uuid.UUID | None = None
     keywords: list[str] = Field(default_factory=list, max_length=10)
 
 
@@ -77,13 +79,11 @@ class QuizUpdateRequest(BaseModel):
 
 
 class QuizAttemptRequest(BaseModel):
-    selected_option_id: uuid.UUID
+    corrected: bool
     favorite: bool | None = None
     review: str | None = Field(default=None, max_length=REVIEW_MAX_LENGTH)
 
 
 class QuizAttemptResult(BaseModel):
-    is_correct: bool
-    correct_option_id: uuid.UUID
-    commentary: str
+    corrected: bool
     is_favorite: bool

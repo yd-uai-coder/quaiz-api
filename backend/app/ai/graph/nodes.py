@@ -18,9 +18,11 @@ _QUESTION_PROMPT_TEMPLATE = """あなたはクイズ作成者です。以下の�
 
 カテゴリ: {category}
 キーワード: {keywords}
+難易度: {difficulty_name}({difficulty_description})
 
 - タイトルは{title_max}文字以内にする
 - 問題文は{question_max}文字以内にする
+- 難易度に見合った問題文の難しさにする
 """
 
 _ANSWER_PROMPT_TEMPLATE = """あなたはクイズ作成者です。以下の問題文に対する
@@ -28,11 +30,14 @@ _ANSWER_PROMPT_TEMPLATE = """あなたはクイズ作成者です。以下の問
 Web検索結果を参考に、事実として正確な内容にしてください。
 
 問題文: {question}
+難易度: {difficulty_name}({difficulty_description})
 Web検索結果: {search_results}
 
 - 選択肢はちょうど4つ作成し、正解は1つだけにする
 - 各選択肢は{option_max}文字以内にする
 - 解説(commentary)には正解の理由を{commentary_max}文字以内で書く
+- 誤答の選択肢は難易度に見合った紛らわしさにする
+  (難易度が高いほど紛らわしく、低いほど明確に誤りとわかるようにする)
 """
 
 
@@ -42,6 +47,8 @@ def generate_question(state: GraphState) -> dict:
     prompt = _QUESTION_PROMPT_TEMPLATE.format(
         category=state["category"],
         keywords="、".join(state["keywords"]) if state["keywords"] else "指定なし",
+        difficulty_name=state["difficulty_name"],
+        difficulty_description=state["difficulty_description"],
         title_max=TITLE_MAX_LENGTH,
         question_max=QUESTION_MAX_LENGTH,
     )
@@ -65,6 +72,8 @@ def generate_answer(state: GraphState) -> dict:
     question_data = state["question_data"]
     prompt = _ANSWER_PROMPT_TEMPLATE.format(
         question=question_data.question,
+        difficulty_name=state["difficulty_name"],
+        difficulty_description=state["difficulty_description"],
         search_results=state["search_results"],
         option_max=OPTION_CONTENT_MAX_LENGTH,
         commentary_max=COMMENTARY_MAX_LENGTH,
