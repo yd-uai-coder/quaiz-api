@@ -1,4 +1,5 @@
 import itertools
+import uuid
 from collections.abc import Iterator
 
 import pytest
@@ -130,6 +131,11 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     assert quiz["title"] == "日本の首都"
     assert len(quiz["options"]) == 4
     assert quiz["difficulty_level"]["id"] == difficulty_level_id
+    assert "my_attempt" not in quiz
+    assert "category" not in quiz
+    assert "keywords" not in quiz
+    assert "created_at" not in quiz
+    assert "updated_at" not in quiz
     quiz_id = quiz["id"]
 
     list_response = await client.get("/api/v1/quizzes", params={"category_id": category_id})
@@ -148,7 +154,7 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     assert attempt_response.status_code == 200
     assert attempt_response.json()["corrected"] is True
 
-    summary_response = await client.get("/api/v1/users/me/summary", headers=headers)
+    summary_response = await client.get("/api/v1/users/profile/summary", headers=headers)
     assert summary_response.json() == {"challenged_count": 1, "corrected_count": 1}
 
     favorite_list_response = await client.get(
@@ -156,10 +162,48 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     )
     assert favorite_list_response.json()["total"] == 1
 
+    mine_list_response = await client.get("/api/v1/quizzes", params={"mine": True}, headers=headers)
+    assert mine_list_response.json()["total"] == 1
+    assert mine_list_response.json()["items"][0]["id"] == quiz_id
+
+    sorted_list_response = await client.get("/api/v1/quizzes", params={"sort_by": "updated_at"})
+    assert sorted_list_response.status_code == 200
+
+    original_options = get_response.json()["options"]
+    original_option_ids = [option["id"] for option in original_options]
+    assert len(original_option_ids) == 4
+
+    mismatched_id_payload = {
+        "options": [
+            {"id": str(uuid.uuid4()), "content": "A", "is_correct": True},
+            {"id": original_option_ids[1], "content": "B", "is_correct": False},
+            {"id": original_option_ids[2], "content": "C", "is_correct": False},
+            {"id": original_option_ids[3], "content": "D", "is_correct": False},
+        ],
+    }
+    mismatched_id_response = await client.patch(
+        f"/api/v1/quizzes/{quiz_id}", json=mismatched_id_payload, headers=headers
+    )
+    assert mismatched_id_response.status_code == 400
+
+    valid_id_payload = {
+        "options": [
+            {"id": original_option_ids[0], "content": "東京", "is_correct": True},
+            {"id": original_option_ids[1], "content": "大阪", "is_correct": False},
+            {"id": original_option_ids[2], "content": "京都", "is_correct": False},
+            {"id": original_option_ids[3], "content": "札幌", "is_correct": False},
+        ],
+    }
+    valid_id_response = await client.patch(
+        f"/api/v1/quizzes/{quiz_id}", json=valid_id_payload, headers=headers
+    )
+    assert valid_id_response.status_code == 204
+
+    get_after_valid_update_response = await client.get(f"/api/v1/quizzes/{quiz_id}")
+    assert len(get_after_valid_update_response.json()["options"]) == 4
+    assert get_after_valid_update_response.json()["options"][0]["content"] == "東京"
+
     update_payload = {
-        "title": "改題",
-        "question": "改訂後の問題文",
-        "commentary": "改訂後の解説",
         "options": [
             {"content": "A", "is_correct": True},
             {"content": "B", "is_correct": False},
@@ -177,8 +221,12 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     update_response = await client.patch(
         f"/api/v1/quizzes/{quiz_id}", json=update_payload, headers=headers
     )
-    assert update_response.status_code == 200
-    assert update_response.json()["title"] == "改題"
+    assert update_response.status_code == 204
+    assert update_response.content == b""
+
+    verify_response = await client.get(f"/api/v1/quizzes/{quiz_id}")
+    assert verify_response.json()["title"] == "日本の首都"  # 本文は編集対象外のため変化しない
+    assert len(verify_response.json()["options"]) == 2
 
     delete_forbidden_response = await client.delete(
         f"/api/v1/quizzes/{quiz_id}", headers=outsider_headers
@@ -193,6 +241,19 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
 
 async def test_quiz_list_requires_auth_for_favorite_filter(client: AsyncClient) -> None:
     response = await client.get("/api/v1/quizzes", params={"favorite": True})
+
+    assert response.status_code == 401
+
+
+async def test_quiz_list_requires_auth_for_mine_filter(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/quizzes", params={"mine": True})
+
+    assert response.status_code == 401
+
+
+async def test_quiz_list_requires_auth_for_corrected_false_filter(client: AsyncClient) -> None:
+    """corrected=falseは明示的な絞り込み指定であり、未指定(フィルタなし)とは区別して認証必須にする。"""
+    response = await client.get("/api/v1/quizzes", params={"corrected": False})
 
     assert response.status_code == 401
 

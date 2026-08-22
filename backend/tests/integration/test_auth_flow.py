@@ -19,7 +19,7 @@ async def test_register_login_and_access_protected_route(client: AsyncClient) ->
     tokens = login_response.json()
 
     me_response = await client.get(
-        "/api/v1/users/me",
+        "/api/v1/users/profile",
         headers={"Authorization": f"Bearer {tokens['access_token']}"},
     )
     assert me_response.status_code == 200

@@ -1,7 +1,9 @@
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.quiz import QuizAttempt
@@ -40,25 +42,36 @@ class QuizAttemptRepository(CRUDRepository[QuizAttempt]):
         favorite: bool | None,
         review: str | None,
     ) -> QuizAttempt:
-        """(quiz_id, user_id)の回答行があれば更新、なければ新規作成する(UPSERT)。"""
-        attempt = await self.get_for_user_and_quiz(quiz_id=quiz_id, user_id=user_id)
-        if attempt is None:
-            attempt = QuizAttempt(
+        """(quiz_id, user_id)の回答行をアトミックにUPSERTする。
+        SELECTしてから無ければINSERTという実装だと、同一(quiz_id, user_id)への初回リクエストが
+        本当に同時に来た場合、両方が「行が無い」と判定してINSERTを試み、片方がユニーク制約
+        (uq_quiz_attempts_quiz_id_user_id)違反で失敗しうる。INSERT ... ON CONFLICT DO UPDATEで
+        Postgres側にアトミックに処理させることでこの競合を防ぐ。
+        """
+        update_values: dict[str, Any] = {"corrected": corrected, "updated_at": func.now()}
+        if favorite is not None:
+            update_values["is_favorite"] = favorite
+        if review is not None:
+            update_values["review"] = review
+
+        stmt = (
+            pg_insert(QuizAttempt)
+            .values(
                 quiz_id=quiz_id,
                 user_id=user_id,
                 corrected=corrected,
                 is_favorite=favorite or False,
                 review=review,
             )
-            self._session.add(attempt)
-        else:
-            attempt.corrected = corrected
-            if favorite is not None:
-                attempt.is_favorite = favorite
-            if review is not None:
-                attempt.review = review
+            .on_conflict_do_update(
+                constraint="uq_quiz_attempts_quiz_id_user_id",
+                set_=update_values,
+            )
+            .returning(QuizAttempt)
+        )
+        result = await self._session.execute(stmt)
         await self._session.flush()
-        return attempt
+        return result.scalar_one()
 
     async def count_challenged(self, user_id: uuid.UUID) -> int:
         """ユーザーが挑戦したクイズの件数を数える。"""

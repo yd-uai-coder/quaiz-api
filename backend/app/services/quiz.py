@@ -1,6 +1,7 @@
 import asyncio
 import random
 import uuid
+from typing import Literal
 
 from google.genai.errors import APIError as GoogleAPIError
 from langgraph.graph.state import CompiledStateGraph
@@ -13,7 +14,7 @@ from app.repositories.category import CategoryRepository
 from app.repositories.difficulty_level import DifficultyLevelRepository
 from app.repositories.keyword import KeywordRepository
 from app.repositories.quiz import QuizRepository
-from app.schemas.quiz import QuizAttemptRead, QuizListItem, QuizRead, QuizUpdateOption
+from app.schemas.quiz import QuizAttemptRead, QuizDetail, QuizListItem, QuizRead, QuizUpdateOption
 from app.services.errors import (
     CategoryNotFoundError,
     DifficultyLevelNotFoundError,
@@ -74,7 +75,7 @@ class QuizService:
         difficulty_level_id: uuid.UUID | None,
         keyword_texts: list[str],
         created_by_id: uuid.UUID,
-    ) -> QuizRead:
+    ) -> QuizDetail:
         """LangGraphでクイズを生成し、成功したらDBへ保存する(失敗時は例外を送出)。
         difficulty_level_idが未指定の場合はランダムな難易度を採番する。
         """
@@ -129,7 +130,7 @@ class QuizService:
         await self._session.commit()
 
         quiz = await self._quizzes.get_by_id(quiz.id)
-        return self._to_quiz_read(quiz, attempt=None)
+        return self._to_quiz_detail(quiz)
 
     async def get_quiz(self, quiz_id: uuid.UUID, *, user_id: uuid.UUID | None) -> QuizRead:
         """クイズ詳細を取得する。user_idがあれば本人の回答状況(my_attempt)も付与する。"""
@@ -148,8 +149,10 @@ class QuizService:
         category_id: uuid.UUID | None,
         keyword: str | None,
         user_id: uuid.UUID | None,
+        mine: bool,
         favorite_only: bool,
-        corrected_only: bool,
+        corrected: bool | None,
+        sort_by: Literal["created_at", "updated_at"],
         page: int,
         limit: int,
     ) -> tuple[list[QuizListItem], int]:
@@ -158,8 +161,10 @@ class QuizService:
             category_id=category_id,
             keyword=keyword,
             user_id=user_id,
+            mine=mine,
             favorite_only=favorite_only,
-            corrected_only=corrected_only,
+            corrected=corrected,
+            sort_by=sort_by,
             page=page,
             limit=limit,
         )
@@ -184,14 +189,11 @@ class QuizService:
         self,
         quiz_id: uuid.UUID,
         *,
-        title: str,
-        question: str,
-        commentary: str,
         options: list[QuizUpdateOption],
         user_id: uuid.UUID,
         is_admin: bool,
-    ) -> QuizRead:
-        """作成者本人または管理者によるクイズ編集。本文と選択肢一式を丸ごと置き換える。"""
+    ) -> None:
+        """作成者本人または管理者によるクイズ編集。選択肢一式を丸ごと置き換える。"""
         quiz = await self._quizzes.get_by_id(quiz_id)
         if quiz is None:
             raise QuizNotFoundError(f"Quiz {quiz_id} not found")
@@ -200,12 +202,15 @@ class QuizService:
         if not any(option.is_correct for option in options):
             raise QuizValidationError("エラー：正解の選択肢が含まれていません。")
 
-        await self._quizzes.update(quiz, title=title, question=question, commentary=commentary)
+        existing_option_ids = {option.id for option in quiz.options}
+        for option in options:
+            if option.id is not None and option.id not in existing_option_ids:
+                raise QuizValidationError(
+                    "エラー：選択肢の情報が最新の状態と一致しません。ページを再読み込みしてください。"
+                )
+
         await self._quizzes.replace_options(quiz, [(o.content, o.is_correct) for o in options])
         await self._session.commit()
-
-        quiz = await self._quizzes.get_by_id(quiz_id)
-        return self._to_quiz_read(quiz, attempt=None)
 
     async def delete_quiz(self, quiz_id: uuid.UUID, *, user_id: uuid.UUID, is_admin: bool) -> None:
         """作成者本人または管理者によるクイズ削除。"""
@@ -218,17 +223,24 @@ class QuizService:
         await self._session.commit()
 
     @staticmethod
-    def _to_quiz_read(quiz: Quiz, *, attempt: QuizAttemptRead | None) -> QuizRead:
-        """ORMのQuizエンティティ(+任意の回答状態)からQuizReadスキーマを組み立てる。"""
-        return QuizRead(
+    def _to_quiz_detail(quiz: Quiz) -> QuizDetail:
+        """ORMのQuizエンティティから、生成直後のレスポンス用に必要最小限のQuizDetailスキーマを組み立てる。"""
+        return QuizDetail(
             id=quiz.id,
             title=quiz.title,
             question=quiz.question,
             commentary=quiz.commentary,
-            category=quiz.category,
             difficulty_level=quiz.difficulty_level,
-            keywords=list(quiz.keywords),
             options=list(quiz.options),
+        )
+
+    @staticmethod
+    def _to_quiz_read(quiz: Quiz, *, attempt: QuizAttemptRead | None) -> QuizRead:
+        """ORMのQuizエンティティ(+任意の回答状態)からQuizReadスキーマを組み立てる。"""
+        return QuizRead(
+            **QuizService._to_quiz_detail(quiz).model_dump(),
+            category=quiz.category,
+            keywords=list(quiz.keywords),
             created_at=quiz.created_at,
             updated_at=quiz.updated_at,
             my_attempt=attempt,

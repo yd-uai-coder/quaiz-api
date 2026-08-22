@@ -3,13 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.quiz import (
-    COMMENTARY_MAX_LENGTH,
-    OPTION_CONTENT_MAX_LENGTH,
-    QUESTION_MAX_LENGTH,
-    REVIEW_MAX_LENGTH,
-    TITLE_MAX_LENGTH,
-)
+from app.models.quiz import OPTION_CONTENT_MAX_LENGTH, REVIEW_MAX_LENGTH
 from app.schemas.base import ORMReadModel
 from app.schemas.category import CategoryRead
 from app.schemas.difficulty_level import DifficultyLevelRead
@@ -35,19 +29,23 @@ class QuizListItem(ORMReadModel):
     category: CategoryRead
     difficulty_level: DifficultyLevelRead
     keywords: list[KeywordRead]
+    created_by_id: uuid.UUID
     created_at: datetime
     my_attempt: QuizAttemptRead | None = None
 
 
-class QuizRead(BaseModel):
+class QuizDetail(BaseModel):
     id: uuid.UUID
     title: str
     question: str
     commentary: str
-    category: CategoryRead
     difficulty_level: DifficultyLevelRead
-    keywords: list[KeywordRead]
     options: list[QuizOptionRead]
+
+
+class QuizRead(QuizDetail):
+    category: CategoryRead
+    keywords: list[KeywordRead]
     created_at: datetime
     updated_at: datetime
     my_attempt: QuizAttemptRead | None = None
@@ -67,14 +65,15 @@ class QuizGenerateRequest(BaseModel):
 
 
 class QuizUpdateOption(BaseModel):
+    # 指定時、対象クイズの既存選択肢のidと一致するかをサービス層で検証する
+    # (GET取得時点と送信時点でのID不整合を検知するため)。省略可能なのは、
+    # 既存の「id無しで丸ごと入れ替え」契約(件数変更も含む)を壊さないため。
+    id: uuid.UUID | None = None
     content: str = Field(max_length=OPTION_CONTENT_MAX_LENGTH)
     is_correct: bool
 
 
 class QuizUpdateRequest(BaseModel):
-    title: str = Field(max_length=TITLE_MAX_LENGTH)
-    question: str = Field(max_length=QUESTION_MAX_LENGTH)
-    commentary: str = Field(max_length=COMMENTARY_MAX_LENGTH)
     options: list[QuizUpdateOption]
 
 

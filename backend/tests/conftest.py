@@ -1,6 +1,22 @@
+# ルートconftest。pytestはtests/integration/conftest.pyより先にこのファイルをimportする
+# (ディレクトリ階層の上から解決されるため)。このファイルが
+# `from app.core.database import Base`でapp.core.databaseを最初にimportすると、
+# その時点のDATABASE_URL(コンテナ内では本物の開発DB)でengineが作られてsys.modulesに
+# キャッシュされてしまい、後からtests/integration/conftest.pyがDATABASE_URLを
+# 上書きしても手遅れになる(importは1度きりで、2度目以降は同じモジュールオブジェクトが
+# 返るだけでre-executeされない)。これが原因で、テスト用DBへ隔離したはずの
+# integrationテストのdrop_all()が実際には開発DBに対して実行され、データが消える
+# 事故が起きていた。DATABASE_URLのtest用DBへのリダイレクトは、app.core.databaseを
+# importする一番最初の場所であるこのファイルで行う必要がある。
 import os
 
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/test")
+_ORIGINAL_DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/quaiz_app"
+)
+_DSN_BASE, _, _ORIGINAL_DB_NAME = _ORIGINAL_DATABASE_URL.rpartition("/")
+if not _ORIGINAL_DB_NAME.endswith("_test"):
+    os.environ["DATABASE_URL"] = f"{_DSN_BASE}/{_ORIGINAL_DB_NAME}_test"
+
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/1")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-at-least-32-bytes-long")
 os.environ.setdefault("GOOGLE_API_KEY", "test-google-api-key")
