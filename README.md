@@ -79,6 +79,7 @@ uv sync   # pyproject.toml / uv.lock から依存関係を再現
 | `GOOGLE_API_KEY` | Gemini用APIキー(クイズ生成に必須) |
 | `GEMINI_MODEL` | 既定 `gemini-3.1-flash-lite` |
 | `TAVILY_API_KEY` | Tavily検索用APIキー(クイズの回答をWeb検索で裏付けるのに必須) |
+| `CORS_ORIGINS` | 許可するフロントエンドのオリジンをJSON配列文字列で指定。例: `["https://example.com"]`。未設定時は `["http://localhost:3000"]`。本番では必ず実際のフロントエンドのオリジンに上書きすること |
 | `DEBUG` | 本番では必ず `false` |
 
 ## 開発環境

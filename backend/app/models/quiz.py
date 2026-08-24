@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -43,6 +44,9 @@ quiz_keywords = Table(
         ForeignKey("keywords.id", ondelete="CASCADE"),
         primary_key=True,
     ),
+    # 複合PK(quiz_id, keyword_id)の後方列だけではkeyword_id単体のGROUP BY/検索に使えないため、
+    # キーワード人気ランキング集計(keyword.py: list_ranked_by_quiz_count)用に単独索引を用意する。
+    Index("ix_quiz_keywords_keyword_id", "keyword_id"),
 )
 
 

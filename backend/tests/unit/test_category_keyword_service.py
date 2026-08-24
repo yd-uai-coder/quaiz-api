@@ -6,6 +6,7 @@ from app.repositories.quiz import QuizRepository
 from app.services.category import CategoryService
 from app.services.keyword import KeywordService
 from app.services.user import UserService
+from tests.conftest import FakeRedis
 
 
 async def _create_difficulty_level(session: AsyncSession, level: int = 1) -> DifficultyLevel:
@@ -41,11 +42,13 @@ async def _create_quiz(
     return quiz
 
 
-async def test_list_categories_returns_sorted_by_name(db_session: AsyncSession) -> None:
+async def test_list_categories_returns_sorted_by_name(
+    db_session: AsyncSession, fake_redis: FakeRedis
+) -> None:
     db_session.add_all([Category(name="歴史"), Category(name="地理")])
     await db_session.commit()
 
-    categories = await CategoryService(db_session).list_categories()
+    categories = await CategoryService(db_session, fake_redis).list_categories()
 
     assert [c.name for c in categories] == ["地理", "歴史"]
 
@@ -58,19 +61,21 @@ async def test_keyword_get_or_create_is_idempotent(db_session: AsyncSession) -> 
     assert first.id == second.id
 
 
-async def test_list_keywords_returns_created_keywords(db_session: AsyncSession) -> None:
+async def test_list_keywords_returns_created_keywords(
+    db_session: AsyncSession, fake_redis: FakeRedis
+) -> None:
     repo = KeywordRepository(db_session)
     await repo.get_or_create("歴史")
     await repo.get_or_create("地理")
     await db_session.commit()
 
-    keywords = await KeywordService(db_session).list_keywords()
+    keywords = await KeywordService(db_session, fake_redis).list_keywords()
 
     assert {k.keyword for k in keywords} == {"歴史", "地理"}
 
 
 async def test_keyword_ranking_orders_by_quiz_count_desc_then_name_asc(
-    db_session: AsyncSession,
+    db_session: AsyncSession, fake_redis: FakeRedis,
 ) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
     category = Category(name="地理")
@@ -94,7 +99,7 @@ async def test_keyword_ranking_orders_by_quiz_count_desc_then_name_asc(
             keywords=[keyword],
         )
 
-    ranking = await KeywordService(db_session).list_ranking()
+    ranking = await KeywordService(db_session, fake_redis).list_ranking()
 
     assert [(r.keyword, r.quiz_count) for r in ranking] == [
         ("人気", 2),
@@ -104,7 +109,9 @@ async def test_keyword_ranking_orders_by_quiz_count_desc_then_name_asc(
     ]
 
 
-async def test_keyword_ranking_limit_returns_top_n(db_session: AsyncSession) -> None:
+async def test_keyword_ranking_limit_returns_top_n(
+    db_session: AsyncSession, fake_redis: FakeRedis
+) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
     category = Category(name="地理")
     db_session.add(category)
@@ -126,13 +133,13 @@ async def test_keyword_ranking_limit_returns_top_n(db_session: AsyncSession) -> 
             keywords=[keyword],
         )
 
-    ranking = await KeywordService(db_session).list_ranking(limit=2)
+    ranking = await KeywordService(db_session, fake_redis).list_ranking(limit=2)
 
     assert [r.keyword for r in ranking] == ["人気", "あ行"]
 
 
 async def test_category_ranking_orders_by_quiz_count_desc_then_name_asc(
-    db_session: AsyncSession,
+    db_session: AsyncSession, fake_redis: FakeRedis,
 ) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
     user = await _create_user(db_session, email="category-ranker@example.com")
@@ -148,7 +155,7 @@ async def test_category_ranking_orders_by_quiz_count_desc_then_name_asc(
             db_session, category=category, difficulty_level=difficulty_level, user=user
         )
 
-    ranking = await CategoryService(db_session).list_ranking()
+    ranking = await CategoryService(db_session, fake_redis).list_ranking()
 
     assert [(r.name, r.quiz_count) for r in ranking] == [
         ("人気カテゴリ", 2),
@@ -158,7 +165,9 @@ async def test_category_ranking_orders_by_quiz_count_desc_then_name_asc(
     ]
 
 
-async def test_category_ranking_limit_returns_top_n(db_session: AsyncSession) -> None:
+async def test_category_ranking_limit_returns_top_n(
+    db_session: AsyncSession, fake_redis: FakeRedis
+) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
     user = await _create_user(db_session, email="category-ranker-limit@example.com")
 
@@ -172,6 +181,6 @@ async def test_category_ranking_limit_returns_top_n(db_session: AsyncSession) ->
             db_session, category=category, difficulty_level=difficulty_level, user=user
         )
 
-    ranking = await CategoryService(db_session).list_ranking(limit=2)
+    ranking = await CategoryService(db_session, fake_redis).list_ranking(limit=2)
 
     assert [r.name for r in ranking] == ["人気カテゴリ", "あ行カテゴリ"]
