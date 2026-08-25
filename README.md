@@ -184,9 +184,6 @@ PYTHONPATH=. uv run python scripts/seed.py
 **本番デプロイ時の注意(`815cf7f62a00_users_display_name_login_drop_email.py`マイグレーション)**:
 適用前に本番DBで以下を実行し、display_nameの重複が無いことを確認すること(重複があるとUNIQUE制約作成で失敗する)。
 
-```sql
-SELECT display_name, count(*) FROM users GROUP BY display_name HAVING count(*) > 1;
-```
 
 適用後、`authentications.email`列は完全に失われロールバック以外での復元手段が無いため、適用前にDBバックアップを推奨。
 既存フロントエンド利用者は次回ログインからemailではなくユーザー名でのログインが必要になる。
