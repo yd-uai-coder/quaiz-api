@@ -29,7 +29,7 @@ class QuizListItem(ORMReadModel):
     category: CategoryRead
     difficulty_level: DifficultyLevelRead
     keywords: list[KeywordRead]
-    created_by_id: uuid.UUID
+    created_by_id: uuid.UUID | None
     created_at: datetime
     my_attempt: QuizAttemptRead | None = None
 

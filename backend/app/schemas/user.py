@@ -1,24 +1,25 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from app.models.user import UserRole
 from app.schemas.base import ORMReadModel
 
 
 class UserBase(BaseModel):
-    email: EmailStr
-    display_name: str | None = None
+    display_name: str
 
 
 class UserCreate(UserBase):
     password: str
 
 
-class UserUpdate(BaseModel):
+class UserUpdateRequest(BaseModel):
     display_name: str | None = None
+    role: UserRole | None = None
     password: str | None = None
+    current_password: str | None = None
 
 
 class UserRead(UserBase, ORMReadModel):
@@ -31,3 +32,7 @@ class UserRead(UserBase, ORMReadModel):
 class UserSummary(BaseModel):
     challenged_count: int
     corrected_count: int
+
+
+class UserBulkDeleteRequest(BaseModel):
+    user_ids: list[uuid.UUID]

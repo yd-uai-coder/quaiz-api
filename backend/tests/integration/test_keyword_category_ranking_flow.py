@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.quiz import Category, DifficultyLevel, Keyword
-from app.models.user import UserCredential
+from app.models.user import User, UserCredential
 from app.repositories.quiz import QuizRepository
 
 pytestmark = pytest.mark.integration
@@ -37,10 +37,14 @@ async def _create_keyword(text: str) -> Keyword:
         return keyword
 
 
-async def _get_user_id(email: str):
+async def _get_user_id(display_name: str):
     async with AsyncSessionLocal() as session:
         credential = (
-            await session.execute(select(UserCredential).where(UserCredential.email == email))
+            await session.execute(
+                select(UserCredential)
+                .join(User, User.id == UserCredential.user_id)
+                .where(User.display_name == display_name)
+            )
         ).scalar_one()
         return credential.user_id
 
@@ -63,13 +67,9 @@ async def _create_quiz(*, category: Category, difficulty_level: DifficultyLevel,
 async def test_keyword_and_category_ranking_orders_by_quiz_count(client: AsyncClient) -> None:
     await client.post(
         "/api/v1/auth/register",
-        json={
-            "email": "ranking-tester@example.com",
-            "password": "s3cret-pass",
-            "display_name": "Tester",
-        },
+        json={"display_name": "ranking-tester", "password": "s3cret-pass"},
     )
-    user_id = await _get_user_id("ranking-tester@example.com")
+    user_id = await _get_user_id("ranking-tester")
     difficulty_level = await _create_difficulty_level()
 
     popular_category = await _create_category("人気カテゴリ")

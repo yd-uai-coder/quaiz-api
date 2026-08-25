@@ -1,7 +1,7 @@
 from fastapi import APIRouter, status
 
 from app.api.deps import RedisDep, SessionDep
-from app.schemas.auth import AccessToken, LoginRequest, RefreshRequest, TokenPair
+from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
 from app.schemas.user import UserCreate, UserRead
 from app.services.auth import AuthService
 from app.services.user import UserService
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate, session: SessionDep) -> UserRead:
     user = await UserService(session).create_user(
-        email=payload.email, password=payload.password, display_name=payload.display_name
+        display_name=payload.display_name, password=payload.password
     )
     return UserRead.model_validate(user)
 
@@ -20,16 +20,18 @@ async def register(payload: UserCreate, session: SessionDep) -> UserRead:
 @router.post("/login", response_model=TokenPair)
 async def login(payload: LoginRequest, session: SessionDep, redis: RedisDep) -> TokenPair:
     auth_service = AuthService(session, redis)
-    user = await auth_service.authenticate(email=payload.email, password=payload.password)
+    user = await auth_service.authenticate(
+        display_name=payload.display_name, password=payload.password
+    )
     access_token, refresh_token = await auth_service.issue_tokens(user)
     return TokenPair(access_token=access_token, refresh_token=refresh_token)
 
 
-@router.post("/refresh", response_model=AccessToken)
-async def refresh(payload: RefreshRequest, session: SessionDep, redis: RedisDep) -> AccessToken:
+@router.post("/refresh", response_model=TokenPair)
+async def refresh(payload: RefreshRequest, session: SessionDep, redis: RedisDep) -> TokenPair:
     auth_service = AuthService(session, redis)
-    access_token = await auth_service.refresh_access_token(payload.refresh_token)
-    return AccessToken(access_token=access_token)
+    access_token, refresh_token = await auth_service.refresh_access_token(payload.refresh_token)
+    return TokenPair(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

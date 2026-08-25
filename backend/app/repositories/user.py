@@ -16,24 +16,41 @@ class UserRepository(CRUDRepository[User]):
         """常に認証情報(credential)も同時にロードする。"""
         return (selectinload(User.credential),)
 
-    async def get_by_email(self, email: str) -> User | None:
-        """email(UserCredential側)でUserを取得する。認証情報(credential)も同時にロードする。"""
+    async def get_by_display_name(self, display_name: str) -> User | None:
+        """display_nameでUserを取得する。認証情報(credential)も同時にロードする。"""
         result = await self._session.execute(
-            self._select().join(User.credential).where(UserCredential.email == email)
+            self._select().where(User.display_name == display_name)
         )
         return result.scalar_one_or_none()
 
     async def create(
         self,
         *,
-        email: str,
+        display_name: str,
         hashed_password: str,
-        display_name: str | None = None,
         role: UserRole = UserRole.USER,
     ) -> User:
-        """UserとUserCredential(email・パスワード・role)を1組作成する。"""
+        """UserとUserCredential(パスワード・role)を1組作成する。"""
         user = User(display_name=display_name)
-        user.credential = UserCredential(email=email, hashed_password=hashed_password, role=role)
+        user.credential = UserCredential(hashed_password=hashed_password, role=role)
         self._session.add(user)
+        await self._session.flush()
+        return user
+
+    async def update(
+        self,
+        user: User,
+        *,
+        display_name: str | None = None,
+        role: UserRole | None = None,
+        hashed_password: str | None = None,
+    ) -> User:
+        """取得済みのUserの一部フィールドを更新する。"""
+        if display_name is not None:
+            user.display_name = display_name
+        if role is not None:
+            user.credential.role = role
+        if hashed_password is not None:
+            user.credential.hashed_password = hashed_password
         await self._session.flush()
         return user

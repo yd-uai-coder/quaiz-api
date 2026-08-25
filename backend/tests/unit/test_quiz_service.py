@@ -63,8 +63,8 @@ async def _create_difficulty_level(
     return difficulty_level
 
 
-async def _create_user(session: AsyncSession, email: str = "creator@example.com"):
-    return await UserService(session).create_user(email=email, password="s3cret")
+async def _create_user(session: AsyncSession, display_name: str = "creator"):
+    return await UserService(session).create_user(display_name=display_name, password="s3cret")
 
 
 async def test_generate_quiz_persists_generated_quiz(db_session: AsyncSession, monkeypatch) -> None:
@@ -186,7 +186,7 @@ async def _generate_quiz(db_session: AsyncSession, monkeypatch, **overrides):
     difficulty_level = await _create_difficulty_level(
         db_session, level=overrides.pop("difficulty_level_num", 1)
     )
-    user = await _create_user(db_session, email=overrides.pop("email", "creator2@example.com"))
+    user = await _create_user(db_session, display_name=overrides.pop("display_name", "creator2"))
     generated = _valid_generated_quiz()
     monkeypatch.setattr(
         quiz_service_module,
@@ -268,7 +268,7 @@ async def test_list_quizzes_includes_my_attempt_when_present(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, user = await _generate_quiz(db_session, monkeypatch)
-    other_user = await _create_user(db_session, email="other@example.com")
+    other_user = await _create_user(db_session, display_name="other")
     await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
         user_id=user.id,
@@ -322,11 +322,11 @@ async def test_list_quizzes_includes_my_attempt_when_present(
 async def test_list_quizzes_mine_filters_by_created_by_id(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz_a, user_a = await _generate_quiz(db_session, monkeypatch, email="creator-a@example.com")
+    quiz_a, user_a = await _generate_quiz(db_session, monkeypatch, display_name="creator-a")
     await _generate_quiz(
         db_session,
         monkeypatch,
-        email="creator-b@example.com",
+        display_name="creator-b",
         category_name="歴史",
         difficulty_level_num=2,
     )
@@ -347,14 +347,42 @@ async def test_list_quizzes_mine_filters_by_created_by_id(
     assert items[0].id == quiz_a.id
 
 
+async def test_list_quizzes_succeeds_when_creator_was_deleted(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    """作成者が削除されcreated_by_idがNULLになったクイズも、一覧取得(QuizListItem変換)が
+    例外を送出せずに成功すること(スキーマがcreated_by_idを非Optionalのままにしていたことによる
+    ResponseValidationErrorの回帰テスト)。
+    """
+    quiz, _ = await _generate_quiz(db_session, monkeypatch)
+    quiz_orm = await QuizRepository(db_session).get_by_id(quiz.id)
+    quiz_orm.created_by_id = None
+    await db_session.commit()
+
+    items, total = await QuizService(db_session).list_quizzes(
+        category_id=None,
+        keyword=None,
+        user_id=None,
+        mine=False,
+        favorite_only=False,
+        corrected=None,
+        sort_by="created_at",
+        page=1,
+        limit=20,
+    )
+
+    assert total == 1
+    assert items[0].created_by_id is None
+
+
 async def test_list_quizzes_sort_by_updated_at_orders_by_recent_update(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz_a, _ = await _generate_quiz(db_session, monkeypatch, email="creator-c@example.com")
+    quiz_a, _ = await _generate_quiz(db_session, monkeypatch, display_name="creator-c")
     quiz_b, _ = await _generate_quiz(
         db_session,
         monkeypatch,
-        email="creator-d@example.com",
+        display_name="creator-d",
         category_name="歴史",
         difficulty_level_num=2,
     )
@@ -399,20 +427,18 @@ async def test_list_quizzes_sort_by_updated_at_orders_by_recent_update(
 async def test_list_quizzes_corrected_false_excludes_unattempted(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz_correct, user = await _generate_quiz(
-        db_session, monkeypatch, email="creator-e@example.com"
-    )
+    quiz_correct, user = await _generate_quiz(db_session, monkeypatch, display_name="creator-e")
     quiz_wrong, _ = await _generate_quiz(
         db_session,
         monkeypatch,
-        email="creator-f@example.com",
+        display_name="creator-f",
         category_name="歴史",
         difficulty_level_num=2,
     )
     await _generate_quiz(
         db_session,
         monkeypatch,
-        email="creator-g@example.com",
+        display_name="creator-g",
         category_name="科学",
         difficulty_level_num=3,
     )  # 未回答
@@ -480,7 +506,7 @@ async def test_update_quiz_raises_for_non_creator_non_admin(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, _ = await _generate_quiz(db_session, monkeypatch)
-    other_user = await _create_user(db_session, email="other-editor@example.com")
+    other_user = await _create_user(db_session, display_name="other-editor")
 
     with pytest.raises(QuizPermissionDeniedError):
         await QuizService(db_session).update_quiz(
@@ -498,7 +524,7 @@ async def test_update_quiz_allows_admin_even_if_not_creator(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, _ = await _generate_quiz(db_session, monkeypatch)
-    admin_user = await _create_user(db_session, email="admin-editor@example.com")
+    admin_user = await _create_user(db_session, display_name="admin-editor")
 
     await QuizService(db_session).update_quiz(
         quiz.id,
@@ -527,7 +553,7 @@ async def test_delete_quiz_raises_for_non_creator_non_admin(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, _ = await _generate_quiz(db_session, monkeypatch)
-    other_user = await _create_user(db_session, email="other-deleter@example.com")
+    other_user = await _create_user(db_session, display_name="other-deleter")
 
     with pytest.raises(QuizPermissionDeniedError):
         await QuizService(db_session).delete_quiz(quiz.id, user_id=other_user.id, is_admin=False)
@@ -537,7 +563,7 @@ async def test_delete_quiz_allows_admin_even_if_not_creator(
     db_session: AsyncSession, monkeypatch
 ) -> None:
     quiz, _ = await _generate_quiz(db_session, monkeypatch)
-    admin_user = await _create_user(db_session, email="admin-deleter@example.com")
+    admin_user = await _create_user(db_session, display_name="admin-deleter")
 
     await QuizService(db_session).delete_quiz(quiz.id, user_id=admin_user.id, is_admin=True)
 

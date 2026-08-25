@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.ai.graph import nodes
 from app.core.database import AsyncSessionLocal
 from app.models.quiz import Category, DifficultyLevel
-from app.models.user import UserCredential, UserRole
+from app.models.user import User, UserCredential, UserRole
 from app.schemas.quiz_generation import GeneratedAnswer, GeneratedOption, GeneratedQuestion
 
 pytestmark = pytest.mark.integration
@@ -69,13 +69,13 @@ def _mock_quiz_generation(monkeypatch, *, answers: Iterator[GeneratedAnswer] | N
     monkeypatch.setattr(nodes, "get_tavily_search_tool", lambda: FakeTavilyTool())
 
 
-async def _register_and_login(client: AsyncClient, email: str) -> str:
+async def _register_and_login(client: AsyncClient, display_name: str) -> str:
     await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "s3cret-pass", "display_name": "Tester"},
+        json={"display_name": display_name, "password": "s3cret-pass"},
     )
     login_response = await client.post(
-        "/api/v1/auth/login", json={"email": email, "password": "s3cret-pass"}
+        "/api/v1/auth/login", json={"display_name": display_name, "password": "s3cret-pass"}
     )
     return login_response.json()["access_token"]
 
@@ -100,10 +100,14 @@ async def _create_difficulty_level(
         return str(difficulty_level.id)
 
 
-async def _promote_to_admin(email: str) -> None:
+async def _promote_to_admin(display_name: str) -> None:
     async with AsyncSessionLocal() as session:
         credential = (
-            await session.execute(select(UserCredential).where(UserCredential.email == email))
+            await session.execute(
+                select(UserCredential)
+                .join(User, User.id == UserCredential.user_id)
+                .where(User.display_name == display_name)
+            )
         ).scalar_one()
         credential.role = UserRole.ADMIN
         await session.commit()
@@ -114,7 +118,7 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     category_id = await _create_category()
     difficulty_level_id = await _create_difficulty_level()
 
-    token = await _register_and_login(client, "quizmaker@example.com")
+    token = await _register_and_login(client, "quizmaker")
     headers = {"Authorization": f"Bearer {token}"}
 
     generate_response = await client.post(
@@ -210,7 +214,7 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
         ],
     }
 
-    outsider_token = await _register_and_login(client, "outsider@example.com")
+    outsider_token = await _register_and_login(client, "outsider")
     outsider_headers = {"Authorization": f"Bearer {outsider_token}"}
 
     forbidden_response = await client.patch(
@@ -233,10 +237,46 @@ async def test_generate_list_answer_and_admin_manage_quiz(client: AsyncClient, m
     )
     assert delete_forbidden_response.status_code == 403
 
-    await _promote_to_admin("outsider@example.com")
+    await _promote_to_admin("outsider")
 
     delete_response = await client.delete(f"/api/v1/quizzes/{quiz_id}", headers=outsider_headers)
     assert delete_response.status_code == 204
+
+
+async def test_quiz_list_succeeds_after_creator_is_deleted(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """作成者アカウントを削除した後もGET /quizzesが失敗しないこと
+    (created_by_idがNULLになったクイズのシリアライズに関する回帰テスト)。
+    """
+    _mock_quiz_generation(monkeypatch)
+    category_id = await _create_category("削除回帰")
+    difficulty_level_id = await _create_difficulty_level()
+    token = await _register_and_login(client, "soon-to-be-deleted")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    generate_response = await client.post(
+        "/api/v1/quizzes/generate",
+        json={
+            "category_id": category_id,
+            "difficulty_level_id": difficulty_level_id,
+            "keywords": [],
+        },
+        headers=headers,
+    )
+    assert generate_response.status_code == 201
+
+    profile_response = await client.get("/api/v1/users/profile", headers=headers)
+    user_id = profile_response.json()["id"]
+
+    delete_response = await client.delete(f"/api/v1/users/{user_id}", headers=headers)
+    assert delete_response.status_code == 204
+
+    list_response = await client.get("/api/v1/quizzes", params={"category_id": category_id})
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["created_by_id"] is None
 
 
 async def test_quiz_list_requires_auth_for_favorite_filter(client: AsyncClient) -> None:
@@ -263,7 +303,7 @@ async def test_generate_quiz_returns_404_for_unknown_category(
 ) -> None:
     _mock_quiz_generation(monkeypatch)
     difficulty_level_id = await _create_difficulty_level()
-    token = await _register_and_login(client, "nocategory@example.com")
+    token = await _register_and_login(client, "nocategory")
 
     response = await client.post(
         "/api/v1/quizzes/generate",
@@ -286,7 +326,7 @@ async def test_generate_quiz_returns_502_when_generation_keeps_failing(
     _mock_quiz_generation(monkeypatch, answers=itertools.repeat(invalid_answer))
     category_id = await _create_category("科学")
     difficulty_level_id = await _create_difficulty_level()
-    token = await _register_and_login(client, "alwaysfails@example.com")
+    token = await _register_and_login(client, "alwaysfails")
 
     response = await client.post(
         "/api/v1/quizzes/generate",
@@ -306,7 +346,7 @@ async def test_generate_quiz_returns_429_after_hourly_rate_limit(
 ) -> None:
     category_id = await _create_category("レート制限")
     difficulty_level_id = await _create_difficulty_level()
-    token = await _register_and_login(client, "ratelimited@example.com")
+    token = await _register_and_login(client, "ratelimited")
     headers = {"Authorization": f"Bearer {token}"}
 
     for _ in range(5):

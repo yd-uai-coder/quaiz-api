@@ -9,7 +9,7 @@ from app.services.user import UserService
 
 
 async def _create_user(session: AsyncSession):
-    return await UserService(session).create_user(email="dave@example.com", password="s3cret")
+    return await UserService(session).create_user(display_name="dave", password="s3cret")
 
 
 async def test_authenticate_succeeds_with_correct_password(
@@ -18,9 +18,9 @@ async def test_authenticate_succeeds_with_correct_password(
     await _create_user(db_session)
     auth_service = AuthService(db_session, fake_redis)
 
-    user = await auth_service.authenticate(email="dave@example.com", password="s3cret")
+    user = await auth_service.authenticate(display_name="dave", password="s3cret")
 
-    assert user.email == "dave@example.com"
+    assert user.display_name == "dave"
 
 
 async def test_authenticate_rejects_wrong_password(
@@ -30,16 +30,16 @@ async def test_authenticate_rejects_wrong_password(
     auth_service = AuthService(db_session, fake_redis)
 
     with pytest.raises(InvalidCredentialsError):
-        await auth_service.authenticate(email="dave@example.com", password="wrong")
+        await auth_service.authenticate(display_name="dave", password="wrong")
 
 
-async def test_authenticate_rejects_unknown_email(
+async def test_authenticate_rejects_unknown_display_name(
     db_session: AsyncSession, fake_redis: FakeRedis
 ) -> None:
     auth_service = AuthService(db_session, fake_redis)
 
     with pytest.raises(InvalidCredentialsError):
-        await auth_service.authenticate(email="nobody@example.com", password="whatever")
+        await auth_service.authenticate(display_name="nobody", password="whatever")
 
 
 async def test_issue_tokens_stores_refresh_token_in_redis(
@@ -62,8 +62,26 @@ async def test_refresh_access_token_succeeds_for_valid_refresh_token(
     auth_service = AuthService(db_session, fake_redis)
     _, refresh_token = await auth_service.issue_tokens(user)
 
-    access_token = await auth_service.refresh_access_token(refresh_token)
+    access_token, _ = await auth_service.refresh_access_token(refresh_token)
 
+    assert decode_token(access_token)["sub"] == str(user.id)
+
+
+async def test_refresh_access_token_rotates_refresh_token(
+    db_session: AsyncSession, fake_redis: FakeRedis
+) -> None:
+    user = await _create_user(db_session)
+    auth_service = AuthService(db_session, fake_redis)
+    _, old_refresh_token = await auth_service.issue_tokens(user)
+
+    _, new_refresh_token = await auth_service.refresh_access_token(old_refresh_token)
+
+    assert new_refresh_token != old_refresh_token
+    # 旧refresh tokenは失効しており、もう使えない
+    with pytest.raises(InvalidTokenError):
+        await auth_service.refresh_access_token(old_refresh_token)
+    # 新しいrefresh tokenは有効
+    access_token, _ = await auth_service.refresh_access_token(new_refresh_token)
     assert decode_token(access_token)["sub"] == str(user.id)
 
 

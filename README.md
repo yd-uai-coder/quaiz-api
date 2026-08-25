@@ -152,11 +152,12 @@ docker compose exec backend uv run alembic upgrade head
 ## 初期データ投入(シーディング)
 
 `difficulty_levels`(5件)に加え、`categories`(8件: アニメ・ゲーム/美術/観光/スポーツ/政治・経済/音楽/映画/グルメ)と
-初期ADMINユーザー(email: `admin@admin.com` / password: `admin0123`)は、マイグレーション
-(`943c6a5db794_add_difficulty_levels.py`, `72c54fa6fa45_seed_categories_and_admin_user.py`)内で
+初期ADMINユーザー(display_name: `ADMIN_USER` / password: `admin0123`。認証はemailではなくdisplay_name+passwordで行う)は、
+マイグレーション(`943c6a5db794_add_difficulty_levels.py`, `72c54fa6fa45_seed_categories_and_admin_user.py`)内で
 `bulk_insert`されるため、`alembic upgrade head`を実行するだけで自動的に投入される
 (重複時は`ON CONFLICT DO NOTHING`等でスキップする実装のため、複数回適用しても安全)。
-**本番投入後は`admin@admin.com`のパスワードを速やかに変更すること**(平文の初期パスワードがGit履歴に残るため)。
+**本番投入後は`ADMIN_USER`のパスワードを速やかに変更すること**(平文の初期パスワードがGit履歴に残るため。
+`PATCH /users/{user_id}`で本人が変更可能)。
 
 上記に加えて、旧Java/Spring版の設計資料(`GW11月発表資料.pdf`)相当のサンプルデータ(カテゴリ・キーワード・
 サンプルユーザー・クイズ)を投入したい場合は、以下のスクリプトを別途実行する。
@@ -167,6 +168,28 @@ docker compose exec backend uv run alembic upgrade head
 cd backend
 PYTHONPATH=. uv run python scripts/seed.py
 ```
+
+## 認証方式(display_name + password)とユーザー管理API
+
+認証はemailではなく`display_name`(ユーザー名) + passwordで行う(`authentications.email`列は廃止済み)。
+`users.display_name`はNOT NULL・UNIQUE制約付き。
+
+- `POST /users/bulk-delete`(ADMIN専用)を除き、`PATCH /users/{user_id}` / `DELETE /users/{user_id}`は
+  「本人 または ADMIN」が実行できる。roleの変更はADMINのみ許可(自分自身の変更であっても非ADMINはroleを変えられない)。
+- 本人が自分のパスワードを変更する場合のみ`current_password`が必須(ADMINが他人のパスワードを変更する場合は不要)。
+- `GET /users`(ADMIN専用)は全ユーザーをdisplay_name昇順で返す。
+- ユーザー削除時、そのユーザーが作成したクイズは削除されず`created_by_id`がNULLになる
+  (`quizzes.created_by_id`のFKに`ON DELETE SET NULL`を設定済み)。
+
+**本番デプロイ時の注意(`815cf7f62a00_users_display_name_login_drop_email.py`マイグレーション)**:
+適用前に本番DBで以下を実行し、display_nameの重複が無いことを確認すること(重複があるとUNIQUE制約作成で失敗する)。
+
+```sql
+SELECT display_name, count(*) FROM users GROUP BY display_name HAVING count(*) > 1;
+```
+
+適用後、`authentications.email`列は完全に失われロールバック以外での復元手段が無いため、適用前にDBバックアップを推奨。
+既存フロントエンド利用者は次回ログインからemailではなくユーザー名でのログインが必要になる。
 
 ## テスト実行方法
 
@@ -225,7 +248,7 @@ VPS側には事前に以下を用意してください。
 
 ## 未実装・今後対応が必要な事項
 
-- 認証API（登録・ログイン・リフレッシュ・ログアウト）の基盤は実装済みですが、パスワードリセットやメール確認などの拡張は未実装です
-- カテゴリ・キーワードの新規作成APIはありません。カテゴリは`alembic upgrade head`によるマイグレーション内シードが前提で、管理者用の登録APIは未実装です（キーワードはクイズ生成時に自動でget-or-createされます）
-- ADMIN roleへの昇格用APIはありません。管理者にする場合は `authentications.role` を直接更新してください
-- クイズ生成は「タイトル・問題文の生成に失敗した/DBカラム長を超える等のバリデーション失敗」を最大3回まで自動リトライし、Gemini/Tavily呼び出し自体の一時的なエラーも最大3回までリトライしますが、それでも失敗した場合はエラーを返すのみで、キューイングや非同期リトライは行いません
+- 認証API（登録・ログイン・リフレッシュ・ログアウト）の基盤は実装済みですが、パスワードリセットなどの拡張は未実装です
+- カテゴリ・キーワードの新規作成APIはありません。カテゴリは`alembic upgrade head`によるマイグレーション内シードが前提です（キーワードはクイズ生成時に自動でget-or-createされます）
+- ADMIN roleへの昇格は `PATCH /users/{user_id}`（ADMINが実行）で可能になりましたが、最初のADMIN（シード投入分以外）を作る手段としては依然`authentications.role`の直接更新が必要です
+- クイズ生成は「タイトル・問題文の生成に失敗した/DBカラム長を超える等のバリデーション失敗」を最大3回まで自動リトライし、Gemini/Tavily呼び出し自体の一時的なエラーも最大3回までリトライしますが、それでも失敗した場合はエラーを返すのみです。現状は同期処理(`POST /quizzes/generate`がリクエストをブロックしたまま完了まで待つ)で、キューイングや非同期リトライは行いません。将来的に非同期化する場合はRQ(既存のシンプルなRedis利用パターンと親和性が高い)を軽量な選択肢として推奨します。`POST /quizzes/generate`を202 Accepted + `job_id`を返す設計に変更し、`GET /quizzes/generate/{job_id}`のポーリング用エンドポイントを新設、`docker-compose.yml`/`docker-compose.prod.yml`に`worker`サービス（同一イメージで`rq worker`起動）を追加する必要があります

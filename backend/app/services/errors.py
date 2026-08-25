@@ -51,3 +51,15 @@ class QuizPermissionDeniedError(ForbiddenError):
 
 class QuizValidationError(BadRequestError):
     pass
+
+
+class UserPermissionDeniedError(ForbiddenError):
+    pass
+
+
+class InvalidCurrentPasswordError(BadRequestError):
+    pass
+
+
+class UserNotFoundError(NotFoundError):
+    pass

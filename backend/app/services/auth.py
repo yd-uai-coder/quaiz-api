@@ -25,11 +25,11 @@ class AuthService:
         self._redis = redis
         self._users = UserRepository(session)
 
-    async def authenticate(self, *, email: str, password: str) -> User:
-        """email+passwordを検証する。パスワードはUserCredential側に保存されている。"""
-        user = await self._users.get_by_email(email)
+    async def authenticate(self, *, display_name: str, password: str) -> User:
+        """display_name+passwordを検証する。パスワードはUserCredential側に保存されている。"""
+        user = await self._users.get_by_display_name(display_name)
         if user is None or not verify_password(password, user.credential.hashed_password):
-            raise InvalidCredentialsError("Invalid email or password")
+            raise InvalidCredentialsError("Invalid display_name or password")
         if not user.is_active:
             raise InvalidCredentialsError("User is inactive")
         return user
@@ -43,7 +43,10 @@ class AuthService:
         )
         return access_token, refresh_token
 
-    async def refresh_access_token(self, refresh_token: str) -> str:
+    async def refresh_access_token(self, refresh_token: str) -> tuple[str, str]:
+        """アクセストークンを再発行する。同時にrefresh tokenもローテーションし、
+        使用済みの旧トークンは失効させる(使い回し・盗難時の被害範囲を限定するため)。
+        """
         try:
             claims = decode_token(refresh_token)
         except jwt.PyJWTError as exc:
@@ -57,7 +60,15 @@ class AuthService:
         if not await self._is_refresh_token_valid(user_id=user_id, jti=jti):
             raise InvalidTokenError("Refresh token has been revoked or expired")
 
-        return create_access_token(user_id)
+        new_access_token = create_access_token(user_id)
+        new_refresh_token = create_refresh_token(user_id)
+        new_claims = decode_token(new_refresh_token)
+        await self._store_refresh_token(
+            user_id=uuid.UUID(user_id), jti=new_claims["jti"], expires_at=new_claims["exp"]
+        )
+        await self._redis.delete(self._redis_key(user_id, jti))
+
+        return new_access_token, new_refresh_token
 
     async def revoke_refresh_token(self, refresh_token: str) -> None:
         try:

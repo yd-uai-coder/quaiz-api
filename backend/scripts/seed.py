@@ -1,7 +1,7 @@
 """旧Java/Spring版(GW11月発表資料.pdf)のシーディングSQLを現行スキーマに合わせて再現する初期データ投入スクリプト。
 
 `uv run python scripts/seed.py` で実行する。カテゴリ・キーワードは既存があれば再利用し、
-ユーザーはメールアドレスの重複があればスキップするため、複数回実行しても安全(冪等)。
+ユーザーはdisplay_nameの重複があればスキップするため、複数回実行しても安全(冪等)。
 クイズ本体は重複チェックをしないため、同じクイズを増やしたくない場合は既存データを確認してから実行すること。
 """
 
@@ -42,13 +42,11 @@ KEYWORD_TEXTS = [
     "メジャーリーグ",
 ]
 
-# 旧スキーマにはメールアドレスが存在しないため、旧members.idから
-# sample{id}@sample.comを合成する。
 USERS = [
-    {"username": "nanashi", "password": "monhanbaka", "legacy_id": 1},
-    {"username": "kohei", "password": "p@ss", "legacy_id": 2},
-    {"username": "hiroyuki", "password": "2chan", "legacy_id": 3},
-    {"username": "Douko", "password": "p@ss", "legacy_id": 4},
+    {"username": "nanashi", "password": "monhanbaka"},
+    {"username": "kohei", "password": "p@ss"},
+    {"username": "hiroyuki", "password": "2chan"},
+    {"username": "Douko", "password": "p@ss"},
 ]
 
 QUIZZES = [
@@ -177,15 +175,13 @@ async def seed() -> None:
 
         users = {}
         for u in USERS:
-            email = f"sample{u['legacy_id']}@sample.com"
-            existing = await user_repo.get_by_email(email)
+            existing = await user_repo.get_by_display_name(u["username"])
             if existing is not None:
                 users[u["username"]] = existing
                 continue
             users[u["username"]] = await user_repo.create(
-                email=email,
-                hashed_password=hash_password(u["password"]),
                 display_name=u["username"],
+                hashed_password=hash_password(u["password"]),
                 role=UserRole.ADMIN,
             )
 

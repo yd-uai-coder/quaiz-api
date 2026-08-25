@@ -16,8 +16,8 @@ async def _create_difficulty_level(session: AsyncSession, level: int = 1) -> Dif
     return difficulty_level
 
 
-async def _create_user(session: AsyncSession, email: str):
-    return await UserService(session).create_user(email=email, password="s3cret")
+async def _create_user(session: AsyncSession, display_name: str):
+    return await UserService(session).create_user(display_name=display_name, password="s3cret")
 
 
 async def _create_quiz(
@@ -81,7 +81,7 @@ async def test_keyword_ranking_orders_by_quiz_count_desc_then_name_asc(
     category = Category(name="地理")
     db_session.add(category)
     await db_session.commit()
-    user = await _create_user(db_session, email="keyword-ranker@example.com")
+    user = await _create_user(db_session, display_name="keyword-ranker")
 
     keyword_repo = KeywordRepository(db_session)
     popular = await keyword_repo.get_or_create("人気")
@@ -116,7 +116,7 @@ async def test_keyword_ranking_limit_returns_top_n(
     category = Category(name="地理")
     db_session.add(category)
     await db_session.commit()
-    user = await _create_user(db_session, email="keyword-ranker-limit@example.com")
+    user = await _create_user(db_session, display_name="keyword-ranker-limit")
 
     keyword_repo = KeywordRepository(db_session)
     popular = await keyword_repo.get_or_create("人気")
@@ -142,7 +142,7 @@ async def test_category_ranking_orders_by_quiz_count_desc_then_name_asc(
     db_session: AsyncSession, fake_redis: FakeRedis,
 ) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
-    user = await _create_user(db_session, email="category-ranker@example.com")
+    user = await _create_user(db_session, display_name="category-ranker")
 
     popular = Category(name="人気カテゴリ")
     tie_a = Category(name="あ行カテゴリ")
@@ -169,7 +169,7 @@ async def test_category_ranking_limit_returns_top_n(
     db_session: AsyncSession, fake_redis: FakeRedis
 ) -> None:
     difficulty_level = await _create_difficulty_level(db_session)
-    user = await _create_user(db_session, email="category-ranker-limit@example.com")
+    user = await _create_user(db_session, display_name="category-ranker-limit")
 
     popular = Category(name="人気カテゴリ")
     tie_a = Category(name="あ行カテゴリ")

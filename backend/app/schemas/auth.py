@@ -1,8 +1,8 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    display_name: str
     password: str
 
 
@@ -14,8 +14,3 @@ class TokenPair(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
-
-
-class AccessToken(BaseModel):
-    access_token: str
-    token_type: str = "bearer"

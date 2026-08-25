@@ -104,8 +104,8 @@ class Quiz(Base):
     category_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("categories.id"), index=True, nullable=False
     )
-    created_by_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
     difficulty_level_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("difficulty_levels.id"), index=True, nullable=False

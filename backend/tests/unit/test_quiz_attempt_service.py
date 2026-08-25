@@ -34,12 +34,12 @@ def _valid_generated_quiz() -> GeneratedQuiz:
     )
 
 
-async def _create_quiz(db_session: AsyncSession, monkeypatch, email: str):
+async def _create_quiz(db_session: AsyncSession, monkeypatch, display_name: str):
     category = Category(name="地理")
     difficulty_level = DifficultyLevel(name="超簡単", description="誰でも分かる問題。", level=1)
     db_session.add_all([category, difficulty_level])
     await db_session.commit()
-    user = await UserService(db_session).create_user(email=email, password="s3cret")
+    user = await UserService(db_session).create_user(display_name=display_name, password="s3cret")
     monkeypatch.setattr(
         quiz_service_module,
         "get_quiz_workflow",
@@ -55,7 +55,7 @@ async def _create_quiz(db_session: AsyncSession, monkeypatch, email: str):
 
 
 async def test_submit_attempt_records_correct_answer(db_session: AsyncSession, monkeypatch) -> None:
-    quiz, user = await _create_quiz(db_session, monkeypatch, "answerer@example.com")
+    quiz, user = await _create_quiz(db_session, monkeypatch, "answerer")
 
     result = await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
@@ -71,7 +71,7 @@ async def test_submit_attempt_records_correct_answer(db_session: AsyncSession, m
 async def test_submit_attempt_records_incorrect_answer(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz, user = await _create_quiz(db_session, monkeypatch, "wrong-answerer@example.com")
+    quiz, user = await _create_quiz(db_session, monkeypatch, "wrong-answerer")
 
     result = await QuizAttemptService(db_session).submit_attempt(
         quiz_id=quiz.id,
@@ -87,7 +87,7 @@ async def test_submit_attempt_records_incorrect_answer(
 async def test_submit_attempt_upserts_same_row_on_retry(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz, user = await _create_quiz(db_session, monkeypatch, "retry@example.com")
+    quiz, user = await _create_quiz(db_session, monkeypatch, "retry")
     service = QuizAttemptService(db_session)
 
     await service.submit_attempt(
@@ -111,7 +111,7 @@ async def test_submit_attempt_upserts_same_row_on_retry(
 
 
 async def test_submit_attempt_raises_for_unknown_quiz(db_session: AsyncSession) -> None:
-    user = await UserService(db_session).create_user(email="noquiz@example.com", password="s3cret")
+    user = await UserService(db_session).create_user(display_name="noquiz", password="s3cret")
 
     with pytest.raises(QuizNotFoundError):
         await QuizAttemptService(db_session).submit_attempt(
@@ -126,7 +126,7 @@ async def test_submit_attempt_raises_for_unknown_quiz(db_session: AsyncSession) 
 async def test_get_summary_counts_challenged_and_corrected(
     db_session: AsyncSession, monkeypatch
 ) -> None:
-    quiz, user = await _create_quiz(db_session, monkeypatch, "summary@example.com")
+    quiz, user = await _create_quiz(db_session, monkeypatch, "summary")
     service = QuizAttemptService(db_session)
 
     await service.submit_attempt(
