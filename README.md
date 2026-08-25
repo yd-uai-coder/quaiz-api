@@ -221,6 +221,7 @@ docker compose -f docker-compose.prod.yml exec backend uv run alembic upgrade he
 - backendコンテナのポートをホストに公開せず、Nginxのみを外部公開の入口とする
 - PostgreSQL/RedisはDocker内部ネットワークのみに限定し、ポートを公開しない
 - PostgreSQLデータは名前付きVolumeで永続化
+- `ENVIRONMENT=production`（`docker-compose.prod.yml`で設定済み）のとき、Swagger UI (`/docs`)・ReDoc (`/redoc`)・OpenAPIスキーマ (`/openapi.json`) はいずれも無効化（404）される（フロントエンドの通信先URLからAPIのbase URLが判明しても、全エンドポイント仕様が第三者に閲覧されないようにするため。`app/main.py`参照）
 - HTTPSへ拡張する場合は`nginx/nginx.conf`にTLS用`server`ブロックを追加し、`docker-compose.prod.yml`の`443`ポート・証明書マウントのコメントアウトを外してください
 
 ## GitHub Actionsによるデプロイ方法

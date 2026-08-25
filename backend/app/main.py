@@ -18,10 +18,15 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+_is_production = settings.ENVIRONMENT == "production"
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     debug=settings.DEBUG,
     lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 app.add_middleware(
