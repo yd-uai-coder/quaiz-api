@@ -209,20 +209,46 @@ uv run ruff format .     # Format
 
 ## 本番環境
 
+本番VPSは複数プロジェクトが同居しており、ポート80/443は**VPS共有のTraefik**（`/opt/traefik`、本リポジトリ外）のみが公開します。backendはTraefikと同じDockerネットワーク`edge`経由でのみ到達し、TLS終端・HTTP→HTTPSリダイレクト・Let's Encrypt証明書の取得/更新はすべてTraefik側が行います（Nginx・certbotは本番では使用しません）。Traefik自体の構築手順・新規プロジェクト追加の共通手順は devex-api の `OPERATIONS.md`（1節・4節）を参照してください。
+
 ```bash
 cp .env.example .env     # 本番用の値（強固なパスワード・シークレット）を設定
-docker compose -f docker-compose.prod.yml up -d --build
+# 事前に edge ネットワーク（共有Traefikが作成）が存在すること
+docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 docker compose -f docker-compose.prod.yml exec backend uv run alembic upgrade head
+curl -s https://quaiz-api.uandi-tech.com/health
 ```
 
 `docker-compose.prod.yml` では以下を行っています。
 
 - `--reload`を使用しない本番用Uvicorn起動
-- backendコンテナのポートをホストに公開せず、Nginxのみを外部公開の入口とする
+- backendコンテナのポートをホストに公開せず、Traefikのlabel（router名`quaiz-api`、`Host(`quaiz-api.uandi-tech.com`)`）経由でのみ外部公開する
+- backendイメージ名は`quaiz-api-backend:latest`（同じVPS上の他プロジェクトとタグが衝突しないようにするため）
 - PostgreSQL/RedisはDocker内部ネットワークのみに限定し、ポートを公開しない
-- PostgreSQLデータは名前付きVolumeで永続化
+- PostgreSQLデータは名前付きVolumeで永続化（Volume名はcomposeプロジェクト名＝VPS上のディレクトリ名に依存するため、clone先ディレクトリ名を変更しないこと。`docker compose down -v`も実行しないこと）
 - `ENVIRONMENT=production`（`docker-compose.prod.yml`で設定済み）のとき、Swagger UI (`/docs`)・ReDoc (`/redoc`)・OpenAPIスキーマ (`/openapi.json`) はいずれも無効化（404）される（フロントエンドの通信先URLからAPIのbase URLが判明しても、全エンドポイント仕様が第三者に閲覧されないようにするため。`app/main.py`参照）
-- HTTPSへ拡張する場合は`nginx/nginx.conf`にTLS用`server`ブロックを追加し、`docker-compose.prod.yml`の`443`ポート・証明書マウントのコメントアウトを外してください
+
+### Nginx構成からTraefik構成への移行手順（既存データを保持する）
+
+```bash
+cd <VPS上のquaiz-apiのパス>
+# 1. 現状確認（Volume名・composeプロジェクト名・edgeネットワークの存在）
+docker compose ls; docker volume ls | grep quaiz; docker network ls | grep edge
+# 2. バックアップ（postgresが停止していれば先に `docker compose -f docker-compose.prod.yml up -d postgres`）
+set -a; . ./.env; set +a
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" > ~/quaiz_backup_$(date +%F).dump
+ls -lh ~/quaiz_backup_*.dump   # 空でないことを確認し、scp等でVPS外にも退避する
+# 3. 取り込み・起動（--remove-orphansで旧nginxコンテナを削除。Volumeは削除されない）
+git pull
+docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+docker compose -f docker-compose.prod.yml exec -T backend uv run alembic upgrade head
+# 4. 動作確認
+docker compose -f docker-compose.prod.yml ps
+curl -s https://quaiz-api.uandi-tech.com/health
+```
+
+旧構成で使っていたcertbotの更新cron/systemd timer（nginxをreloadするフック含む）は停止してください。`nginx/certs`・`certbot-webroot`は動作確認後に削除して構いません。
 
 ## GitHub Actionsによるデプロイ方法
 

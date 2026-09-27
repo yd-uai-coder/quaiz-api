@@ -34,7 +34,8 @@ services:
     build:
       context: ./backend
       target: runtime
-    image: fastapi-langchain-backend:latest
+    # 同じVPS上の他プロジェクト(devex-api等)とイメージタグが衝突しないよう、プロジェクト固有名にする。
+    image: quaiz-api-backend:latest
     restart: unless-stopped
     env_file:
       - .env
@@ -46,23 +47,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
     networks:
       - internal
-
-  nginx:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/certs:/etc/nginx/certs:ro
-      - ./certbot-webroot:/var/www/certbot:ro
-    depends_on:
-      - backend
-    networks:
-      - internal
+      - edge
+    # VPS共有のTraefik(quaiz-apiリポジトリ外。構築手順はdevex-apiのOPERATIONS.md「共有Traefikの導入」参照)
+    # 経由でのみ外部から到達する。このサービス自体はホストへポートを公開しない。
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.quaiz-api.rule=Host(`quaiz-api.uandi-tech.com`)"
+      - "traefik.http.routers.quaiz-api.entrypoints=websecure"
+      - "traefik.http.routers.quaiz-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.quaiz-api.loadbalancer.server.port=8000"
 
 volumes:
   postgres_data:
@@ -70,3 +72,7 @@ volumes:
 
 networks:
   internal:
+  # Traefik側のcompose(VPS共有、quaiz-apiリポジトリ外)が作成する外部ネットワーク。
+  # `docker network create edge`済みであること、またはTraefik側composeで作成済みであることが前提。
+  edge:
+    external: true
